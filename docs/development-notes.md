@@ -1,0 +1,39 @@
+# 開発ノート
+
+## 方針
+
+- Windows専用のデスクトップアプリとして、C#とWPFを使用する。
+- Loreとの連携には公式C# SDK `LoreVcs` を使用する。SDKはNuGetパッケージとして参照する。
+- ゲームエンジンなどと併用することを想定し、メモリ使用量と操作時の応答性を意識する。
+- Loreは開発中のため、SDKとネイティブライブラリのバージョン互換性を確認しながら更新する。
+
+## 現在の範囲
+
+複数サーバーの表示名とURLの保存、選択、編集、削除、およびLore SDKの対話ログインに対応する。起動時は接続せず、ログインボタンを押したときにのみブラウザーを開く。ログイン中は設定変更や重複ログインを防ぎ、失敗時は画面にエラーを表示する。
+
+設定ファイルには認証情報を保存しない。Lore SDKが認証情報を管理する。設定ファイルが壊れている場合は上書きせず、別プロセスによる変更も検出して保存を拒否する。設定削除はログアウトではない。現時点ではログアウト機能やログイン処理のキャンセル機能はない。
+
+実際のLore Server・auth bridge・Entraの組み合わせとSDK 0.12.0の互換性は未検証。ログインの成功はリポジトリのアクセス権を保証しない。
+
+## Loreの操作を実装するときの参照先（AI・開発者向け）
+
+LoreのCLIコマンドに相当するGUI操作を追加するときは、コマンド名からSDKのAPIや挙動を推測せず、以下を確認する。
+
+1. [Lore CLIのコマンド実装](https://github.com/EpicGames/lore/tree/main/lore-client/src/cli/commands)で、対象コマンドの引数、呼び出すLore API、出力を確認する。
+2. [Lore本体のC APIヘッダー](https://github.com/EpicGames/lore/blob/main/lore-capi/lore.h)と[本体の実装](https://github.com/EpicGames/lore/tree/main/lore/src)で、APIの引数、イベント、成功・失敗時の挙動を確認する。
+3. [C# SDKのREADME](https://github.com/EpicGames/lore-dotnet#readme)と[サンプル](https://github.com/EpicGames/lore-dotnet/tree/main/examples)で、C#からの呼び出し方を確認する。Chroniclerでの先行例は[ログイン処理](../src/Chronicler/Authentication/LoreLoginService.cs)。
+4. 実際に使用する[プロジェクトのLoreVcsバージョン](../src/Chronicler/Chronicler.csproj)にそのAPIがあることを確認する。上記の `main` は開発中の最新版なので、採用バージョンと挙動が異なる場合は、そのバージョンのSDK・Lore本体を優先する。
+
+SDKのイベントはコールバック内で必要なデータを読み取り、UIの更新はUIスレッドに渡す。長時間の操作で画面をブロックせず、失敗を利用者に表示する。トークンやログインURLなどの機密情報をログや設定ファイルに保存しない。書き込みや破壊的な操作は、実装とテストを試用リポジトリで確認する。
+
+## 今後の候補
+
+1. 実環境でサーバーとの互換性、TLS、Entraログインと期限切れ時の再ログインを確認する。
+2. SDKによるローカルリポジトリのstatus取得を単体で検証する。
+3. フォルダー選択と変更ファイル一覧を読み取り専用で表示する。
+4. 大量のファイルを想定し、一覧の仮想化とメモリ使用量を検証する。
+5. 試用リポジトリでstage、commit、pushを段階的に追加する。
+
+## メモリ計測
+
+起動直後、アイドル時、大量ファイルのstatus取得中と取得後を、同じ環境・リポジトリで比較する。GUIとLoreのネイティブライブラリ双方の影響を考慮し、目標値は実測を踏まえて決める。

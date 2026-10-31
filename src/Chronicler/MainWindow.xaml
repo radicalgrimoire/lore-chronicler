@@ -1,0 +1,77 @@
+<Window x:Class="Chronicler.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Chronicler" Height="560" Width="880" MinHeight="480" MinWidth="720"
+        WindowStartupLocation="CenterScreen" Closing="Window_Closing">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <StackPanel Margin="0,0,0,20">
+            <TextBlock Text="Chronicler" FontSize="26" FontWeight="SemiBold" />
+            <TextBlock Text="Lore サーバーとログイン" Margin="0,4,0,0" />
+        </StackPanel>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="240" />
+                <ColumnDefinition Width="24" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock Text="保存済みサーバー" FontWeight="SemiBold" Margin="0,0,0,8" />
+                <ListBox x:Name="ServerList" Grid.Row="1" DisplayMemberPath="Name"
+                         SelectionChanged="ServerList_SelectionChanged"
+                         AutomationProperties.Name="保存済みサーバー" />
+                <Button x:Name="NewButton" Grid.Row="2" Content="新規サーバー" Margin="0,10,0,0"
+                        Padding="12,7" Click="NewButton_Click" />
+            </Grid>
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <TextBlock Text="サーバー設定" FontSize="18" FontWeight="SemiBold" />
+                <StackPanel Grid.Row="1" Margin="0,16,0,0">
+                    <TextBlock Text="表示名" />
+                    <TextBox x:Name="NameInput" Margin="0,5,0,0" Padding="6"
+                             TextChanged="Inputs_TextChanged" AutomationProperties.Name="表示名" />
+                </StackPanel>
+                <StackPanel Grid.Row="2" Margin="0,12,0,0">
+                    <TextBlock Text="サーバーURL" />
+                    <TextBox x:Name="UrlInput" Margin="0,5,0,0" Padding="6"
+                             TextChanged="Inputs_TextChanged" AutomationProperties.Name="サーバーURL" />
+                    <TextBlock Text="例: lore://server.example.com:41337" Margin="0,5,0,0"
+                               Foreground="DimGray" />
+                </StackPanel>
+                <WrapPanel Grid.Row="3" Margin="0,18,0,0">
+                    <Button x:Name="SaveButton" Content="保存" Padding="16,7" Margin="0,0,8,8"
+                            Click="SaveButton_Click" />
+                    <Button x:Name="RemoveButton" Content="削除" Padding="16,7" Margin="0,0,8,8"
+                            Click="RemoveButton_Click" />
+                    <Button x:Name="LoginButton" Content="ログイン" Padding="16,7" Margin="0,0,8,8"
+                            Click="LoginButton_Click" />
+                </WrapPanel>
+                <StackPanel Grid.Row="4" Margin="0,16,0,0">
+                    <TextBlock x:Name="LoginStatus" TextWrapping="Wrap" />
+                    <TextBlock x:Name="UserCodeText" Margin="0,8,0,0" TextWrapping="Wrap" />
+                    <Button x:Name="OpenBrowserButton" Content="ブラウザーをもう一度開く"
+                            HorizontalAlignment="Left" Padding="12,7" Margin="0,10,0,0"
+                            Visibility="Collapsed" Click="OpenBrowserButton_Click" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+        <TextBlock x:Name="FooterStatus" Grid.Row="2" Margin="0,16,0,0"
+                   TextWrapping="Wrap" Foreground="DimGray" />
+    </Grid>
+</Window>
