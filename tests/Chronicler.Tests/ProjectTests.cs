@@ -131,15 +131,87 @@ public sealed class ProjectTests : IDisposable
     }
 
     [Fact]
-    public void ExistingDestinationIsNeverClonedOrChanged()
+    public void ExistingEmptyDestinationIsClonedAndRegistered()
+    {
+        RunSta(() =>
+        {
+            var path = Path.Combine(directory, "existing");
+            Directory.CreateDirectory(path);
+            var service = new FakeRepositoryService();
+            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), service, (_, _) => true);
+            Click(window, "FetchButton");
+            PumpDispatcher();
+            Control<ListBox>(window, "RepositoryList").SelectedIndex = 0;
+            Control<TextBox>(window, "LocalPath").Text = path;
+            Click(window, "CloneButton");
+            Assert.Equal(path, service.Path);
+            service.CloneResult.SetResult();
+            PumpDispatcher();
+            Assert.Equal(path, Assert.Single(new ProjectSettingsStore(SettingsPath).Load()).LocalPath);
+            window.Close();
+        });
+    }
+
+    [Theory]
+    [InlineData("file")]
+    [InlineData("hidden")]
+    [InlineData("directory")]
+    public void NonEmptyDestinationIsNeverClonedOrChanged(string entryType)
     {
         RunSta(() =>
         {
             Directory.CreateDirectory(directory);
             var path = Path.Combine(directory, "existing");
             Directory.CreateDirectory(path);
-            var marker = Path.Combine(path, "keep.txt");
-            File.WriteAllText(marker, "keep");
+            var marker = Path.Combine(path, "keep");
+            if (entryType == "directory")
+            {
+                Directory.CreateDirectory(marker);
+            }
+            else
+            {
+                File.WriteAllText(marker, "keep");
+                if (entryType == "hidden")
+                {
+                    File.SetAttributes(marker, FileAttributes.Hidden);
+                }
+            }
+            var service = new FakeRepositoryService();
+            var confirmed = false;
+            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), service, (_, _) =>
+            {
+                confirmed = true;
+                return true;
+            });
+            Click(window, "FetchButton");
+            PumpDispatcher();
+            Control<ListBox>(window, "RepositoryList").SelectedIndex = 0;
+            Control<TextBox>(window, "LocalPath").Text = path;
+            Click(window, "CloneButton");
+            Assert.Null(service.Path);
+            Assert.False(confirmed);
+            Assert.Contains("空ではありません", Control<TextBlock>(window, "StatusText").Text);
+            if (entryType == "directory")
+            {
+                Assert.True(Directory.Exists(marker));
+            }
+            else
+            {
+                Assert.Equal("keep", File.ReadAllText(marker));
+                File.SetAttributes(marker, FileAttributes.Normal);
+            }
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void ExistingFileCannotBeUsedAsCloneDestination()
+    {
+        RunSta(() =>
+        {
+            Directory.CreateDirectory(directory);
+            var path = Path.Combine(directory, "file");
+            File.WriteAllText(path, "keep");
             var service = new FakeRepositoryService();
             var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), service, (_, _) => true);
             Click(window, "FetchButton");
@@ -148,8 +220,41 @@ public sealed class ProjectTests : IDisposable
             Control<TextBox>(window, "LocalPath").Text = path;
             Click(window, "CloneButton");
             Assert.Null(service.Path);
-            Assert.Contains("既に存在", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("フォルダーではありません", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Equal("keep", File.ReadAllText(path));
+            window.Close();
+        });
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void DestinationChangedDuringConfirmationIsNotCloned(bool existed)
+    {
+        RunSta(() =>
+        {
+            Directory.CreateDirectory(directory);
+            var path = Path.Combine(directory, "changed");
+            if (existed)
+            {
+                Directory.CreateDirectory(path);
+            }
+            var marker = Path.Combine(path, "keep.txt");
+            var service = new FakeRepositoryService();
+            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), service, (_, _) =>
+            {
+                Directory.CreateDirectory(path);
+                File.WriteAllText(marker, "keep");
+                return true;
+            });
+            Click(window, "FetchButton");
+            PumpDispatcher();
+            Control<ListBox>(window, "RepositoryList").SelectedIndex = 0;
+            Control<TextBox>(window, "LocalPath").Text = path;
+            Click(window, "CloneButton");
+            Assert.Null(service.Path);
             Assert.Equal("keep", File.ReadAllText(marker));
+            Assert.NotEmpty(Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }

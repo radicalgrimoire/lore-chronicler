@@ -52,6 +52,7 @@ public partial class ProjectWindow : Window
         ProjectName.IsEnabled = editable;
         LocalPath.IsEnabled = editable;
         BrowseButton.IsEnabled = editable;
+        BrowseParentButton.IsEnabled = editable;
         CloneButton.IsEnabled = editable && RepositoryList.SelectedItem is string;
         RetrySaveButton.Visibility = pending is null ? Visibility.Collapsed : Visibility.Visible;
         RetrySaveButton.IsEnabled = available && !busy;
@@ -98,6 +99,15 @@ public partial class ProjectWindow : Window
 
     private void BrowseButton_Click(object sender, RoutedEventArgs e)
     {
+        var dialog = new OpenFolderDialog { Title = "clone先のフォルダーを選択" };
+        if (dialog.ShowDialog(this) == true)
+        {
+            LocalPath.Text = dialog.FolderName;
+        }
+    }
+
+    private void BrowseParentButton_Click(object sender, RoutedEventArgs e)
+    {
         var dialog = new OpenFolderDialog { Title = "clone先の親フォルダーを選択" };
         if (dialog.ShowDialog(this) == true)
         {
@@ -129,13 +139,10 @@ public partial class ProjectWindow : Window
             StatusText.Text = "このclone先は既にプロジェクトとして登録されています。";
             return;
         }
+        bool destinationExists;
         try
         {
-            if (PathExists(path))
-            {
-                StatusText.Text = "clone先は既に存在します。存在しないフォルダーを指定してください。";
-                return;
-            }
+            destinationExists = CloneDestination.ExistsAndIsEmpty(path);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -152,7 +159,11 @@ public partial class ProjectWindow : Window
         StatusText.Text = "clone中です。完了するまでお待ちください。";
         try
         {
-            CloneDestination.Reserve(path);
+            if (!destinationExists)
+            {
+                CloneDestination.Reserve(path);
+            }
+            CloneDestination.EnsureEmpty(path);
             var progress = new Progress<string>(message => { if (busy) StatusText.Text = message; });
             await repositoryService.CloneAsync(server.RemoteUrl, repositoryName, path, progress);
             pending = new ProjectProfile(Guid.NewGuid(), name, server.Id, server.RemoteUrl, repositoryName, path);
@@ -167,9 +178,9 @@ public partial class ProjectWindow : Window
             StatusText.Text = $"clone先を作成できませんでした。既存のパスや親フォルダー、権限を確認してください。\n{ex.Message}";
         }
         catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException
-            or BadImageFormatException or InvalidOperationException or ArgumentException or IOException)
+            or BadImageFormatException or InvalidOperationException or ArgumentException or IOException or UnauthorizedAccessException)
         {
-            StatusText.Text = $"cloneを完了できませんでした（{ex.GetType().Name}）。途中のファイルが残っている場合があります。clone先を確認してください。";
+            StatusText.Text = $"cloneを完了できませんでした（{ex.GetType().Name}）。途中のファイルが残っている場合があります。clone先を確認してください。\n{ex.Message}";
         }
         finally
         {
@@ -180,17 +191,6 @@ public partial class ProjectWindow : Window
                 Close();
             }
         }
-    }
-
-    private static bool PathExists(string path)
-    {
-        try
-        {
-            File.GetAttributes(path);
-            return true;
-        }
-        catch (FileNotFoundException) { return false; }
-        catch (DirectoryNotFoundException) { return false; }
     }
 
     private void TrySavePending()

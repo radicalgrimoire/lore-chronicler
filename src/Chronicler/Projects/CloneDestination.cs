@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.InteropServices;
 
 namespace Chronicler.Projects;
@@ -14,6 +15,32 @@ public static class CloneDestination
         if (!CreateDirectory(path, IntPtr.Zero))
         {
             throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+    }
+
+    public static bool ExistsAndIsEmpty(string path)
+    {
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (FileNotFoundException) { return false; }
+        catch (DirectoryNotFoundException) { return false; }
+
+        if ((attributes & FileAttributes.Directory) == 0)
+        {
+            throw new IOException("clone先はフォルダーではありません。");
+        }
+        EnsureEmpty(path);
+        return true;
+    }
+
+    public static void EnsureEmpty(string path)
+    {
+        if (Directory.EnumerateFileSystemEntries(path).Any())
+        {
+            throw new IOException("clone先のフォルダーが空ではありません。空のフォルダーを指定してください。");
         }
     }
 }

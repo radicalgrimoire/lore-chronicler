@@ -34,9 +34,11 @@ SDKのイベントはコールバック内で必要なデータを読み取り�
 
 1. 実環境の試用リポジトリで一覧取得、clone、期限切れ時の再ログインを確認する。
 2. SDKによるローカルリポジトリのstatus取得を単体で検証する。
-3. フォルダー選択と変更ファイル一覧を読み取り専用で表示する。
+3. フォルダー選択と変更ファイル一覧を表示する。scanはローカルの管理情報を更新する。
 4. 大量のファイルを想定し、一覧の仮想化とメモリ使用量を検証する。
 5. 試用リポジトリでstage、commit、pushを段階的に追加する。
+
+変更一覧からStage／Unstageまでの方針は[変更ワークフローの開発ノート](change-workflow-plan.md)を参照する。作業は[radicalgrimoireのissue #13](https://github.com/radicalgrimoire/radicalgrimoire/issues/13)で管理する。
 
 ## メモリ計測
 
