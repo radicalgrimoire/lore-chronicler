@@ -42,6 +42,11 @@ public sealed class ProjectSettingsStore(string filePath)
                 || string.IsNullOrWhiteSpace(project.Name) || project.Name != project.Name.Trim()
                 || !ServerProfileValidator.TryValidate("server", project.ServerUrl, out _)
                 || !ProjectValidator.IsValidRepositoryName(project.RepositoryName)
+                || !Enum.IsDefined(project.CloneState)
+                || (project.CloneState != ProjectCloneState.Ready && project.RepositoryId is not null)
+                || (project.RepositoryId is not null
+                    && (project.RepositoryId.Length != 32 || !project.RepositoryId.All(Uri.IsHexDigit)
+                        || project.RepositoryId.All(c => c == '0')))
                 || !ProjectValidator.TryNormalizePath(project.LocalPath, out var path, out _)
                 || !ids.Add(project.Id) || !paths.Add(path))
             {

@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.IO;
-using System.Windows;
 using System.Windows.Controls;
 using Chronicler.Projects;
 using Chronicler.Servers;
@@ -22,10 +21,8 @@ public sealed class ProjectTests : IDisposable
     [InlineData("team/.hidden", false)]
     [InlineData("repo?x=1", false)]
     [InlineData("", false)]
-    public void RepositoryNamesRoundTripSafely(string name, bool expected)
-    {
+    public void RepositoryNamesRoundTripSafely(string name, bool expected) =>
         Assert.Equal(expected, ProjectValidator.IsValidRepositoryName(name));
-    }
 
     [Fact]
     public void BuildsUrlAndRequiresAbsoluteNonRootPath()
@@ -54,10 +51,24 @@ public sealed class ProjectTests : IDisposable
     }
 
     [Fact]
-    public async Task SdkRejectsInvalidRemoteForRepositoryListing()
+    public void OldProjectWithoutCloneStateIsTreatedAsAlreadyCloned()
     {
-        await Assert.ThrowsAsync<LoreVcs.LoreError>(() => new LoreRepositoryService().ListAsync("not a valid remote"));
+        Directory.CreateDirectory(directory);
+        var old = new
+        {
+            Version = 1,
+            Projects = new[] { new { Id = Guid.NewGuid(), Name = "old", ServerId = server.Id,
+                ServerUrl = server.RemoteUrl, RepositoryName = "repo", LocalPath = Path.Combine(directory, "old") } }
+        };
+        File.WriteAllText(SettingsPath, System.Text.Json.JsonSerializer.Serialize(old));
+        var project = Assert.Single(new ProjectSettingsStore(SettingsPath).Load());
+        Assert.Equal(ProjectCloneState.Ready, project.CloneState);
+        Assert.Null(project.RepositoryId);
     }
+
+    [Fact]
+    public async Task SdkRejectsInvalidRemoteForRepositoryListing() =>
+        await Assert.ThrowsAsync<LoreVcs.LoreError>(() => new LoreRepositoryService().ListAsync("not a valid remote"));
 
     [Fact]
     public void ReservesCloneDirectoryWithoutOverwritingExistingContent()
@@ -71,83 +82,44 @@ public sealed class ProjectTests : IDisposable
         Assert.Equal("keep", File.ReadAllText(marker));
     }
 
-    [Fact]
-    public void FetchCloneAndRegisterProject()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void CreatesPendingProjectWithoutCloning(bool existingEmpty)
     {
         RunSta(() =>
         {
             Directory.CreateDirectory(directory);
-            var service = new FakeRepositoryService();
-            var store = new ProjectSettingsStore(SettingsPath);
-            var window = new ProjectWindow(server, store, service, (_, _) => true);
-            Assert.Equal(0, service.ListCalls);
-            Click(window, "FetchButton");
-            PumpDispatcher();
-            Assert.Equal(1, service.ListCalls);
-            var list = Control<ListBox>(window, "RepositoryList");
-            list.SelectedIndex = 0;
             var path = Path.Combine(directory, "clone");
+            if (existingEmpty) Directory.CreateDirectory(path);
+            var service = new FakeRepositoryService();
+            var window = CreateWindow(service);
+            SelectRepository(window);
             Control<TextBox>(window, "LocalPath").Text = path;
-            Click(window, "CloneButton");
-            Assert.Equal(path, service.Path);
-            Assert.True(Directory.Exists(path));
-            Assert.False(Control<Button>(window, "FetchButton").IsEnabled);
-            Directory.CreateDirectory(Path.Combine(path, ".lore"));
-            service.CloneResult.SetResult();
-            PumpDispatcher();
+            Click(window, "CreateButton");
             var project = Assert.Single(new ProjectSettingsStore(SettingsPath).Load());
-            Assert.Equal("team/repo", project.RepositoryName);
-            Assert.Equal(server.Id, project.ServerId);
+            Assert.Equal(ProjectCloneState.Pending, project.CloneState);
+            Assert.Null(project.RepositoryId);
             Assert.Equal(path, project.LocalPath);
-            Assert.Equal(project, window.CreatedProject);
-            Assert.True(Directory.Exists(Path.Combine(path, ".lore")));
+            Assert.Equal(existingEmpty, Directory.Exists(path));
+            Assert.Null(service.Path);
             window.Close();
         });
     }
 
     [Fact]
-    public void CloneFailureKeepsDestinationAndDoesNotRegisterProject()
+    public void ChangingServerClearsRepositorySelection()
     {
         RunSta(() =>
         {
-            Directory.CreateDirectory(directory);
             var service = new FakeRepositoryService();
-            var store = new ProjectSettingsStore(SettingsPath);
-            var window = new ProjectWindow(server, store, service, (_, _) => true);
-            Click(window, "FetchButton");
-            PumpDispatcher();
-            Control<ListBox>(window, "RepositoryList").SelectedIndex = 0;
-            var path = Path.Combine(directory, "failed");
-            Control<TextBox>(window, "LocalPath").Text = path;
-            Click(window, "CloneButton");
-            File.WriteAllText(Path.Combine(path, "partial.txt"), "keep");
-            service.CloneResult.SetException(new LoreVcs.LoreError(42));
-            PumpDispatcher();
-            Assert.Contains("42", Control<TextBlock>(window, "StatusText").Text);
-            Assert.True(File.Exists(Path.Combine(path, "partial.txt")));
+            var window = CreateWindow(service);
+            SelectRepository(window);
+            Control<TextBox>(window, "ServerUrlInput").Text = "lore://other.example:41337";
+            Assert.Null(Control<ListBox>(window, "RepositoryList").SelectedItem);
+            Control<TextBox>(window, "LocalPath").Text = Path.Combine(directory, "clone");
+            Click(window, "CreateButton");
             Assert.Empty(new ProjectSettingsStore(SettingsPath).Load());
-            window.Close();
-        });
-    }
-
-    [Fact]
-    public void ExistingEmptyDestinationIsClonedAndRegistered()
-    {
-        RunSta(() =>
-        {
-            var path = Path.Combine(directory, "existing");
-            Directory.CreateDirectory(path);
-            var service = new FakeRepositoryService();
-            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), service, (_, _) => true);
-            Click(window, "FetchButton");
-            PumpDispatcher();
-            Control<ListBox>(window, "RepositoryList").SelectedIndex = 0;
-            Control<TextBox>(window, "LocalPath").Text = path;
-            Click(window, "CloneButton");
-            Assert.Equal(path, service.Path);
-            service.CloneResult.SetResult();
-            PumpDispatcher();
-            Assert.Equal(path, Assert.Single(new ProjectSettingsStore(SettingsPath).Load()).LocalPath);
             window.Close();
         });
     }
@@ -156,46 +128,28 @@ public sealed class ProjectTests : IDisposable
     [InlineData("file")]
     [InlineData("hidden")]
     [InlineData("directory")]
-    public void NonEmptyDestinationIsNeverClonedOrChanged(string entryType)
+    public void NonEmptyDestinationIsNeverRegisteredOrChanged(string type)
     {
         RunSta(() =>
         {
-            Directory.CreateDirectory(directory);
             var path = Path.Combine(directory, "existing");
             Directory.CreateDirectory(path);
             var marker = Path.Combine(path, "keep");
-            if (entryType == "directory")
-            {
-                Directory.CreateDirectory(marker);
-            }
+            if (type == "directory") Directory.CreateDirectory(marker);
             else
             {
                 File.WriteAllText(marker, "keep");
-                if (entryType == "hidden")
-                {
-                    File.SetAttributes(marker, FileAttributes.Hidden);
-                }
+                if (type == "hidden") File.SetAttributes(marker, FileAttributes.Hidden);
             }
             var service = new FakeRepositoryService();
-            var confirmed = false;
-            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), service, (_, _) =>
-            {
-                confirmed = true;
-                return true;
-            });
-            Click(window, "FetchButton");
-            PumpDispatcher();
-            Control<ListBox>(window, "RepositoryList").SelectedIndex = 0;
+            var window = CreateWindow(service);
+            SelectRepository(window);
             Control<TextBox>(window, "LocalPath").Text = path;
-            Click(window, "CloneButton");
-            Assert.Null(service.Path);
-            Assert.False(confirmed);
+            Click(window, "CreateButton");
+            Assert.Empty(new ProjectSettingsStore(SettingsPath).Load());
             Assert.Contains("空ではありません", Control<TextBlock>(window, "StatusText").Text);
-            if (entryType == "directory")
-            {
-                Assert.True(Directory.Exists(marker));
-            }
-            else
+            Assert.Null(service.Path);
+            if (type != "directory")
             {
                 Assert.Equal("keep", File.ReadAllText(marker));
                 File.SetAttributes(marker, FileAttributes.Normal);
@@ -205,153 +159,90 @@ public sealed class ProjectTests : IDisposable
     }
 
     [Fact]
-    public void ExistingFileCannotBeUsedAsCloneDestination()
+    public void ExistingCloneIsRegisteredWithoutCloning()
     {
         RunSta(() =>
         {
-            Directory.CreateDirectory(directory);
-            var path = Path.Combine(directory, "file");
-            File.WriteAllText(path, "keep");
+            var path = Path.Combine(directory, "existing");
+            Directory.CreateDirectory(Path.Combine(path, ".lore"));
+            File.WriteAllText(Path.Combine(path, "keep"), "keep");
+            var info = new FakeProjectRepositoryInfo { Name = "team/repo", RemoteUrl = "lore://other.example:41337" };
+            string? authUrl = null;
             var service = new FakeRepositoryService();
-            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), service, (_, _) => true);
-            Click(window, "FetchButton");
-            PumpDispatcher();
-            Control<ListBox>(window, "RepositoryList").SelectedIndex = 0;
+            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), service,
+                (_, _) => true, info, url => { authUrl = url; return true; });
             Control<TextBox>(window, "LocalPath").Text = path;
-            Click(window, "CloneButton");
+            Click(window, "CreateButton");
+            var project = Assert.Single(new ProjectSettingsStore(SettingsPath).Load());
+            Assert.Equal(ProjectCloneState.Ready, project.CloneState);
+            Assert.Equal(info.RepositoryId, project.RepositoryId);
+            Assert.Equal(info.RemoteUrl, project.ServerUrl);
+            Assert.Equal(info.RemoteUrl, authUrl);
+            Assert.Equal("team/repo", project.Name);
             Assert.Null(service.Path);
-            Assert.Contains("フォルダーではありません", Control<TextBlock>(window, "StatusText").Text);
-            Assert.Equal("keep", File.ReadAllText(path));
-            window.Close();
-        });
-    }
-
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void DestinationChangedDuringConfirmationIsNotCloned(bool existed)
-    {
-        RunSta(() =>
-        {
-            Directory.CreateDirectory(directory);
-            var path = Path.Combine(directory, "changed");
-            if (existed)
-            {
-                Directory.CreateDirectory(path);
-            }
-            var marker = Path.Combine(path, "keep.txt");
-            var service = new FakeRepositoryService();
-            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), service, (_, _) =>
-            {
-                Directory.CreateDirectory(path);
-                File.WriteAllText(marker, "keep");
-                return true;
-            });
-            Click(window, "FetchButton");
-            PumpDispatcher();
-            Control<ListBox>(window, "RepositoryList").SelectedIndex = 0;
-            Control<TextBox>(window, "LocalPath").Text = path;
-            Click(window, "CloneButton");
-            Assert.Null(service.Path);
-            Assert.Equal("keep", File.ReadAllText(marker));
-            Assert.NotEmpty(Control<TextBlock>(window, "StatusText").Text);
+            Assert.Equal("keep", File.ReadAllText(Path.Combine(path, "keep")));
             window.Close();
         });
     }
 
     [Fact]
-    public void DecliningConfirmationDoesNotCreateDestination()
+    public void InvalidExistingCloneDoesNotRegister()
     {
         RunSta(() =>
         {
-            Directory.CreateDirectory(directory);
-            var path = Path.Combine(directory, "new");
-            var service = new FakeRepositoryService();
-            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), service, (_, _) => false);
-            Click(window, "FetchButton");
-            PumpDispatcher();
-            Control<ListBox>(window, "RepositoryList").SelectedIndex = 0;
+            var path = Path.Combine(directory, "existing");
+            Directory.CreateDirectory(Path.Combine(path, ".lore"));
+            var info = new FakeProjectRepositoryInfo { ServerRepositoryId = "ABCDEF1234567890ABCDEF1234567890" };
+            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), new FakeRepositoryService(), (_, _) => true, info, _ => true);
             Control<TextBox>(window, "LocalPath").Text = path;
-            Click(window, "CloneButton");
-            Assert.Null(service.Path);
-            Assert.False(Directory.Exists(path));
+            Click(window, "CreateButton");
+            Assert.Empty(new ProjectSettingsStore(SettingsPath).Load());
+            Assert.Contains("一致しません", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }
 
     [Fact]
-    public void SuccessfulCloneCanRetryFailedRegistration()
+    public void CancellingExistingCloneAuthenticationDoesNotRegister()
     {
         RunSta(() =>
         {
-            Directory.CreateDirectory(directory);
-            var service = new FakeRepositoryService();
-            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), service, (_, _) => true);
-            Click(window, "FetchButton");
-            PumpDispatcher();
-            Control<ListBox>(window, "RepositoryList").SelectedIndex = 0;
-            var path = Path.Combine(directory, "retry");
+            var path = Path.Combine(directory, "existing");
+            Directory.CreateDirectory(Path.Combine(path, ".lore"));
+            var info = new FakeProjectRepositoryInfo();
+            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), new FakeRepositoryService(), (_, _) => true, info, _ => false);
             Control<TextBox>(window, "LocalPath").Text = path;
-            Click(window, "CloneButton");
-            using (var locked = new FileStream(SettingsPath + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
-            {
-                service.CloneResult.SetResult();
-                PumpDispatcher();
-                Assert.Contains("cloneは完了", Control<TextBlock>(window, "StatusText").Text);
-                Assert.Equal(Visibility.Visible, Control<Button>(window, "RetrySaveButton").Visibility);
-            }
-            Click(window, "RetrySaveButton");
-            Assert.Single(new ProjectSettingsStore(SettingsPath).Load());
-            Assert.True(Directory.Exists(path));
+            Click(window, "CreateButton");
+            Assert.Empty(new ProjectSettingsStore(SettingsPath).Load());
+            Assert.Equal(0, info.RemoteCalls);
+            Assert.Contains("中止", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }
 
-    [Fact]
-    public void SuccessfulCloneClosesVisibleCreationWindow()
+    private ProjectWindow CreateWindow(FakeRepositoryService service) =>
+        new(server, new ProjectSettingsStore(SettingsPath), service, (_, _) => true, new FakeProjectRepositoryInfo(), _ => true);
+
+    private static void SelectRepository(ProjectWindow window)
     {
-        RunSta(() =>
-        {
-            Directory.CreateDirectory(directory);
-            var service = new FakeRepositoryService();
-            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), service, (_, _) => true);
-            window.Show();
-            Click(window, "FetchButton");
-            PumpDispatcher();
-            Control<ListBox>(window, "RepositoryList").SelectedIndex = 0;
-            Control<TextBox>(window, "LocalPath").Text = Path.Combine(directory, "visible");
-            Click(window, "CloneButton");
-            service.CloneResult.SetResult();
-            PumpDispatcher();
-            Assert.NotNull(window.CreatedProject);
-            Assert.False(window.IsVisible);
-        });
+        Click(window, "FetchButton");
+        PumpDispatcher();
+        Control<ListBox>(window, "RepositoryList").SelectedIndex = 0;
     }
 
     public void Dispose()
     {
-        if (Directory.Exists(directory))
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
     }
 
     private sealed class FakeRepositoryService : IRepositoryService
     {
-        public int ListCalls { get; private set; }
         public string? Path { get; private set; }
-        public TaskCompletionSource CloneResult { get; } = new();
-
-        public Task<IReadOnlyList<string>> ListAsync(string serverUrl)
-        {
-            ListCalls++;
-            return Task.FromResult<IReadOnlyList<string>>(["team/repo"]);
-        }
-
+        public Task<IReadOnlyList<string>> ListAsync(string serverUrl) => Task.FromResult<IReadOnlyList<string>>(["team/repo"]);
         public Task CloneAsync(string serverUrl, string repositoryName, string path, IProgress<string> progress)
         {
             Path = path;
-            return CloneResult.Task;
+            return Task.CompletedTask;
         }
     }
 }

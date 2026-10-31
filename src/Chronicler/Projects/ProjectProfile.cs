@@ -3,7 +3,10 @@ using Chronicler.Servers;
 
 namespace Chronicler.Projects;
 
-public sealed record ProjectProfile(Guid Id, string Name, Guid ServerId, string ServerUrl, string RepositoryName, string LocalPath);
+public enum ProjectCloneState { Ready, Pending, Started }
+
+public sealed record ProjectProfile(Guid Id, string Name, Guid ServerId, string ServerUrl, string RepositoryName, string LocalPath,
+    string? RepositoryId = null, ProjectCloneState CloneState = ProjectCloneState.Ready);
 
 public static class ProjectValidator
 {

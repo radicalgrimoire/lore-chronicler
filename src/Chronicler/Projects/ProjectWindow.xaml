@@ -1,45 +1,46 @@
 <Window x:Class="Chronicler.Projects.ProjectWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="新規プロジェクト - Chronicler" Height="600" Width="680"
-        MinHeight="480" MinWidth="560" WindowStartupLocation="CenterOwner"
-        Closing="Window_Closing">
+        Title="プロジェクト作成 - Chronicler" Height="700" Width="700"
+        MinHeight="540" MinWidth="600" WindowStartupLocation="CenterOwner" Closing="Window_Closing">
     <Grid Margin="24">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <TextBlock x:Name="ServerTitle" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" />
-        <Button x:Name="FetchButton" Grid.Row="1" Content="リポジトリ一覧を取得"
-                HorizontalAlignment="Left" Padding="12,7" Margin="0,12,0,8"
-                Click="FetchButton_Click" />
-        <ListBox x:Name="RepositoryList" Grid.Row="2" SelectionChanged="RepositoryList_SelectionChanged"
-                 AutomationProperties.Name="リポジトリ" />
-        <StackPanel Grid.Row="3" Margin="0,12,0,0">
-            <TextBlock Text="プロジェクト名" />
-            <TextBox x:Name="ProjectName" Margin="0,4,0,0" Padding="6" AutomationProperties.Name="プロジェクト名" />
-        </StackPanel>
-        <StackPanel Grid.Row="4" Margin="0,10,0,0">
-            <TextBlock Text="clone先（空のフォルダー、または新しいフォルダー）" />
+        <TextBlock Text="フォルダーを指定してください。既存のLoreリポジトリは情報を読み取って登録します。新規cloneの場合はサーバーとリポジトリを選んでください。"
+                   TextWrapping="Wrap" />
+        <StackPanel Grid.Row="1" Margin="0,10,0,0">
+            <TextBlock Text="プロジェクトフォルダー" />
             <DockPanel Margin="0,4,0,0">
                 <Button x:Name="BrowseParentButton" DockPanel.Dock="Right" Content="親フォルダーを選択"
                         Padding="10,6" Margin="8,0,0,0" Click="BrowseParentButton_Click" />
                 <Button x:Name="BrowseButton" DockPanel.Dock="Right" Content="フォルダーを選択"
                         Padding="10,6" Margin="8,0,0,0" Click="BrowseButton_Click" />
-                <TextBox x:Name="LocalPath" Padding="6" AutomationProperties.Name="clone先" />
+                <TextBox x:Name="LocalPath" Padding="6" AutomationProperties.Name="プロジェクトフォルダー" />
             </DockPanel>
         </StackPanel>
-        <WrapPanel Grid.Row="5" Margin="0,14,0,0">
-            <Button x:Name="CloneButton" Content="確認してclone" Padding="14,7" Margin="0,0,8,0"
-                    Click="CloneButton_Click" />
-            <Button x:Name="RetrySaveButton" Content="プロジェクト登録を再試行" Padding="14,7"
-                    Visibility="Collapsed" Click="RetrySaveButton_Click" />
-        </WrapPanel>
-        <TextBlock x:Name="StatusText" Grid.Row="6" Margin="0,16,0,0" TextWrapping="Wrap" />
+        <StackPanel Grid.Row="2" Margin="0,10,0,0">
+            <TextBlock Text="サーバーURL（新規cloneの場合）" />
+            <TextBox x:Name="ServerUrlInput" Margin="0,4,0,0" Padding="6" TextChanged="ServerUrlInput_TextChanged" />
+            <Button x:Name="LoginButton" Content="ログイン" HorizontalAlignment="Left" Margin="0,6,0,0" Padding="10,5" Click="LoginButton_Click" />
+        </StackPanel>
+        <Button x:Name="FetchButton" Grid.Row="3" Content="リポジトリ一覧を取得"
+                HorizontalAlignment="Left" Padding="12,7" Margin="0,10,0,8" Click="FetchButton_Click" />
+        <ListBox x:Name="RepositoryList" Grid.Row="4" SelectionChanged="RepositoryList_SelectionChanged"
+                 AutomationProperties.Name="リポジトリ" />
+        <StackPanel Grid.Row="5" Margin="0,10,0,0">
+            <TextBlock Text="プロジェクト名（既存cloneの場合は空欄でリポジトリ名を使用）" TextWrapping="Wrap" />
+            <TextBox x:Name="ProjectName" Margin="0,4,0,0" Padding="6" />
+        </StackPanel>
+        <Button x:Name="CreateButton" Grid.Row="6" Content="確認して作成" HorizontalAlignment="Left"
+                Padding="14,7" Margin="0,12,0,0" Click="CreateButton_Click" />
+        <TextBlock x:Name="StatusText" Grid.Row="7" Margin="0,12,0,0" TextWrapping="Wrap" />
     </Grid>
 </Window>

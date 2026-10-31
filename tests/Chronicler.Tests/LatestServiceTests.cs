@@ -117,6 +117,26 @@ public sealed class LatestServiceTests
         }
     }
 
+    [Fact]
+    public async Task SdkReadsLocalRepositoryIdAndRemoteWithoutConnecting()
+        {
+            var directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "Chronicler.Tests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using var globals = new LoreGlobalArgs { RepositoryPath = directory, Offline = true };
+                using var create = new LoreRepositoryCreateArgs { RepositoryUrl = $"lore://localhost:41337/test-{Guid.NewGuid():N}" };
+                await Lore.RepositoryCreate(globals, create).WaitAsync();
+                var info = await new ProjectRepositoryInfo().ReadLocalAsync(directory);
+                Assert.Equal("lore://localhost:41337", info.RemoteUrl);
+                Assert.Equal(32, info.RepositoryId.Length);
+                Assert.NotEqual(new string('0', 32), info.RepositoryId);
+            }
+            finally
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
     private sealed class FakeBackend : ILatestBackend
     {
         public LatestStatus Status { get; init; } = SafeStatus;

@@ -7,7 +7,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Chronicler.Servers;
+using Chronicler.Authentication;
 using LoreVcs;
+using Microsoft.Win32;
 
 namespace Chronicler.Projects;
 
@@ -17,24 +19,41 @@ public partial class WorkspaceWindow : Window
     private readonly ProjectSettingsStore store;
     private readonly IRepositoryService repositoryService;
     private readonly ILatestService latestService;
+    private readonly IProjectRepositoryInfo repositoryInfo;
     private readonly Func<string, string, bool> confirm;
+    private readonly Func<string, string?> selectProjectName;
+    private readonly Func<string, bool> authenticate;
     private readonly ObservableCollection<ProjectProfile> projects = [];
     private ProjectProfile? activeProject;
     private CancellationTokenSource treeCancellation = new();
     private bool available;
     private bool busy;
 
+    public WorkspaceWindow() : this(new ServerProfile(Guid.NewGuid(), "server", string.Empty),
+        new ProjectSettingsStore(ProjectSettingsStore.DefaultPath), new LoreRepositoryService())
+    {
+    }
+
     public WorkspaceWindow(ServerProfile server, ProjectSettingsStore store, IRepositoryService repositoryService,
-        Func<string, string, bool>? confirm = null, ILatestService? latestService = null)
+        Func<string, string, bool>? confirm = null, ILatestService? latestService = null,
+        IProjectRepositoryInfo? repositoryInfo = null,
+        Func<string, string?>? selectProjectName = null, Func<string, bool>? authenticate = null)
     {
         this.server = server;
         this.store = store;
         this.repositoryService = repositoryService;
         this.latestService = latestService ?? new LoreLatestService();
+        this.repositoryInfo = repositoryInfo ?? new ProjectRepositoryInfo();
         this.confirm = confirm ?? ((message, title) =>
             MessageBox.Show(this, message, title, MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes);
         InitializeComponent();
-        ServerText.Text = $"サーバー: {server.Name}";
+        this.selectProjectName = selectProjectName ?? (name =>
+        {
+            var dialog = new RenameProjectWindow(name) { Owner = this };
+            return dialog.ShowDialog() == true ? dialog.ProjectName : null;
+        });
+        this.authenticate = authenticate ?? (url => new LoginWindow(url) { Owner = this }.ShowDialog() == true);
+        ServerText.Text = "サーバー: 未選択";
         ProjectList.ItemsSource = projects;
         ReloadProjects();
         UpdateControls();
@@ -44,7 +63,7 @@ public partial class WorkspaceWindow : Window
     {
         try
         {
-            var loaded = store.Load().Where(project => project.ServerId == server.Id).ToArray();
+            var loaded = store.Load();
             projects.Clear();
             foreach (var project in loaded)
             {
@@ -66,25 +85,27 @@ public partial class WorkspaceWindow : Window
     {
         var selected = ProjectList.SelectedItem is ProjectProfile;
         CreateProjectButton.IsEnabled = available && !busy;
+        RenameProjectButton.IsEnabled = available && selected && !busy;
+        LoginButton.IsEnabled = available && selected && !busy;
         SwitchProjectButton.IsEnabled = available && selected && !busy;
         RemoveProjectButton.IsEnabled = available && selected && !busy;
         ProjectList.IsEnabled = !busy;
-        RefreshTreeButton.IsEnabled = activeProject is not null && !busy;
+        RefreshTreeButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready } && !busy;
         GetLatestButton.IsEnabled = activeProject is not null && !busy;
-        OpenFolderButton.IsEnabled = activeProject is not null && !busy;
+        OpenFolderButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready } && !busy;
     }
 
     private void ProjectList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         ProjectDetails.Text = ProjectList.SelectedItem is ProjectProfile project
-            ? $"リポジトリ: {project.RepositoryName}\nフォルダー: {project.LocalPath}"
+            ? $"サーバー: {project.ServerUrl}\nリポジトリ: {project.RepositoryName}\nフォルダー: {project.LocalPath}"
             : string.Empty;
         UpdateControls();
     }
 
     private void CreateProjectButton_Click(object sender, RoutedEventArgs e)
     {
-        var window = new ProjectWindow(server, store, repositoryService) { Owner = this };
+        var window = new ProjectWindow(server, store, repositoryService, repositoryInfo: repositoryInfo, authenticate: authenticate) { Owner = this };
         window.ShowDialog();
         ReloadProjects(window.CreatedProject?.Id);
         if (window.CreatedProject is not null && available)
@@ -109,38 +130,80 @@ public partial class WorkspaceWindow : Window
         }
     }
 
-    private void SwitchProject(ProjectProfile project)
+    private async void SwitchProject(ProjectProfile project)
     {
         if (busy)
         {
             return;
         }
-        if (!string.Equals(project.ServerUrl, server.RemoteUrl, StringComparison.OrdinalIgnoreCase))
-        {
-            StatusText.Text = "登録時と現在のサーバーURLが異なります。サーバー設定を確認してください。";
-            return;
-        }
+        busy = true;
+        UpdateControls();
         try
         {
+            if (project.CloneState != ProjectCloneState.Ready)
+            {
+                activeProject = project;
+                ActiveProjectText.Text = project.Name;
+                ServerText.Text = $"サーバー: {project.ServerUrl}";
+                Title = $"Chronicler - {project.Name}";
+                ShowProjectTree();
+                StatusText.Text = project.CloneState == ProjectCloneState.Pending
+                    ? "初回取得待ちです。「サーバーから取得」でcloneします。"
+                    : "前回のcloneが完了していません。フォルダーを確認し、登録を削除してから作り直してください。";
+                return;
+            }
             var rootAttributes = File.GetAttributes(project.LocalPath);
-            var loreAttributes = File.GetAttributes(Path.Combine(project.LocalPath, ".lore"));
+            var loreAttributes = ReadLoreAttributes(project.LocalPath);
             if ((rootAttributes & FileAttributes.Directory) == 0 || (loreAttributes & FileAttributes.Directory) == 0)
             {
                 StatusText.Text = "ローカルのLore作業フォルダーが見つかりません。";
                 return;
             }
+            var local = await repositoryInfo.ReadLocalAsync(project.LocalPath);
+            ProjectRepositoryInfo.Validate(local, project.ServerUrl, project.RepositoryId);
+            if (project.RepositoryId is null)
+            {
+                StatusText.Text = "既存プロジェクトのリポジトリ情報をサーバーで確認しています…";
+                var remote = await repositoryInfo.ReadRemoteAsync(project.LocalPath);
+                ProjectRepositoryInfo.ValidateRemote(local, remote);
+                if (!string.Equals(remote.Name, project.RepositoryName, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("サーバーのリポジトリ名が登録情報と一致しません。再登録してください。");
+                }
+                ProjectRepositoryInfo.Validate(await repositoryInfo.ReadLocalAsync(project.LocalPath), project.ServerUrl, local.RepositoryId);
+                var current = store.Load().ToList();
+                var index = current.FindIndex(item => item == project);
+                if (index < 0)
+                {
+                    throw new InvalidOperationException("プロジェクトが別のプロセスで変更されました。");
+                }
+                var updated = project with { RepositoryId = local.RepositoryId };
+                current[index] = updated;
+                store.Save(current);
+                project = updated;
+                ReloadProjects(project.Id);
+            }
+            activeProject = project;
+            ServerText.Text = $"サーバー: {project.ServerUrl}";
+            ActiveProjectText.Text = project.Name;
+            Title = $"Chronicler - {project.Name}";
+            ShowProjectTree();
+            StatusText.Text = $"プロジェクト「{project.Name}」に切り替えました。表示はローカルファイルです。";
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (LoreError ex)
+        {
+            StatusText.Text = $"リポジトリを確認できません（Loreエラー {ex.ReturnCode}）。ログイン状態、接続とアクセス権を確認してください。";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+            or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException or JsonException)
         {
             StatusText.Text = $"ローカルのLore作業フォルダーを確認できません: {ex.Message}";
-            return;
         }
-        activeProject = project;
-        ActiveProjectText.Text = project.Name;
-        Title = $"Chronicler - {project.Name}";
-        ShowProjectTree();
-        StatusText.Text = $"プロジェクト「{project.Name}」に切り替えました。表示はローカルファイルです。";
-        UpdateControls();
+        finally
+        {
+            busy = false;
+            UpdateControls();
+        }
     }
 
     private void ShowProjectTree()
@@ -150,6 +213,10 @@ public partial class WorkspaceWindow : Window
         treeCancellation = new CancellationTokenSource();
         FileTree.Items.Clear();
         if (activeProject is null)
+        {
+            return;
+        }
+        if (activeProject.CloneState != ProjectCloneState.Ready)
         {
             return;
         }
@@ -225,16 +292,102 @@ public partial class WorkspaceWindow : Window
         {
             return;
         }
+        if (project.CloneState == ProjectCloneState.Started)
+        {
+            StatusText.Text = "前回のcloneが完了していません。フォルダーを確認し、登録を削除してから作り直してください。";
+            return;
+        }
+        if (project.CloneState == ProjectCloneState.Pending)
+        {
+            await ClonePendingProjectAsync(project);
+            return;
+        }
         if (!confirm($"プロジェクト: {project.Name}\nフォルダー: {project.LocalPath}\n\n現在のブランチをサーバーで確認した最新リビジョンに更新します。ファイルの追加・変更・削除が発生する場合があります。\n\n取得を開始しますか？", "最新取得の確認"))
         {
             return;
         }
+
+        async Task ClonePendingProjectAsync(ProjectProfile project)
+        {
+            if (!confirm($"サーバー: {project.ServerUrl}\nリポジトリ: {project.RepositoryName}\nフォルダー: {project.LocalPath}\n\n初回cloneを開始しますか？", "初回取得"))
+            {
+                return;
+            }
+            busy = true;
+            UpdateControls();
+            var started = false;
+            try
+            {
+                var exists = CloneDestination.ExistsAndIsEmpty(project.LocalPath);
+                var current = store.Load().ToList();
+                var index = current.FindIndex(item => item == project);
+                if (index < 0)
+                {
+                    throw new InvalidOperationException("プロジェクトが別のプロセスで変更されました。");
+                }
+                var inProgress = project with { CloneState = ProjectCloneState.Started };
+                current[index] = inProgress;
+                store.Save(current);
+                started = true;
+                activeProject = inProgress;
+                ReloadProjects(inProgress.Id);
+                if (!exists) CloneDestination.Reserve(project.LocalPath);
+                CloneDestination.EnsureEmpty(project.LocalPath);
+                StatusText.Text = "clone中です。完了するまでお待ちください。";
+                var progress = new Progress<string>(message => { if (busy) StatusText.Text = message; });
+                await repositoryService.CloneAsync(project.ServerUrl, project.RepositoryName, project.LocalPath, progress);
+                var local = await repositoryInfo.ReadLocalAsync(project.LocalPath);
+                ProjectRepositoryInfo.Validate(local, project.ServerUrl);
+                var remote = await repositoryInfo.ReadRemoteAsync(project.LocalPath);
+                ProjectRepositoryInfo.ValidateRemote(local, remote);
+                if (!string.Equals(remote.Name, project.RepositoryName, StringComparison.Ordinal))
+                    throw new InvalidOperationException("cloneしたリポジトリ名が登録情報と一致しません。");
+                ProjectRepositoryInfo.Validate(await repositoryInfo.ReadLocalAsync(project.LocalPath), project.ServerUrl, local.RepositoryId);
+                current = store.Load().ToList();
+                index = current.FindIndex(item => item == inProgress);
+                if (index < 0)
+                    throw new InvalidOperationException("プロジェクトが別のプロセスで変更されました。");
+                var completed = inProgress with { CloneState = ProjectCloneState.Ready, RepositoryId = local.RepositoryId };
+                current[index] = completed;
+                store.Save(current);
+                activeProject = completed;
+                ReloadProjects(completed.Id);
+                ShowProjectTree();
+                StatusText.Text = "初回取得が完了しました。";
+            }
+            catch (LoreError ex)
+            {
+                StatusText.Text = $"初回取得に失敗しました（Loreエラー {ex.ReturnCode}）。フォルダーを確認し、登録を削除して作り直してください。";
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+                or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException
+                or JsonException or Win32Exception)
+            {
+                StatusText.Text = started
+                    ? $"初回取得を完了できません。フォルダーを確認し、登録を削除して作り直してください: {ex.Message}"
+                    : $"初回取得を開始できません: {ex.Message}";
+            }
+            finally
+            {
+                busy = false;
+                UpdateControls();
+            }
+        }
         busy = true;
         UpdateControls();
         StatusText.Text = "サーバーとローカルの履歴を確認しています…";
+        var syncStarted = false;
         try
         {
+            ReadLoreAttributes(project.LocalPath);
+            var local = await repositoryInfo.ReadLocalAsync(project.LocalPath);
+            ProjectRepositoryInfo.Validate(local, project.ServerUrl, project.RepositoryId);
+            var remote = await repositoryInfo.ReadRemoteAsync(project.LocalPath);
+            ProjectRepositoryInfo.ValidateRemote(local, remote);
+            var checkedLocal = await repositoryInfo.ReadLocalAsync(project.LocalPath);
+            ProjectRepositoryInfo.Validate(checkedLocal, project.ServerUrl, project.RepositoryId);
             var progress = new Progress<string>(message => { if (busy) StatusText.Text = message; });
+            syncStarted = true;
             var status = await latestService.GetLatestAsync(project.LocalPath, progress);
             StatusText.Text = $"ブランチ「{status.Branch}」を、サーバーで確認したリビジョンに更新しました。";
         }
@@ -244,12 +397,16 @@ public partial class WorkspaceWindow : Window
         }
         catch (LoreError ex)
         {
-            StatusText.Text = $"最新取得に失敗しました（Loreエラー {ex.ReturnCode}）。ファイルが一部変更された可能性があります。ローカルの状態、接続、ログインとアクセス権を確認してください。";
+            StatusText.Text = syncStarted
+                ? $"最新取得に失敗しました（Loreエラー {ex.ReturnCode}）。ファイルが一部変更された可能性があります。ローカルの状態、接続、ログインとアクセス権を確認してください。"
+                : $"リポジトリを確認できません（Loreエラー {ex.ReturnCode}）。接続、ログインとアクセス権を確認してください。";
         }
         catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException
             or BadImageFormatException or InvalidOperationException or ArgumentException or IOException or UnauthorizedAccessException)
         {
-            StatusText.Text = $"最新取得を完了できませんでした（{ex.GetType().Name}）。ファイルが一部変更された可能性があります。ローカルの状態と実行環境を確認してください。";
+            StatusText.Text = syncStarted
+                ? $"最新取得を完了できませんでした。ファイルが一部変更された可能性があります: {ex.Message}"
+                : $"リポジトリを確認できません: {ex.Message}";
         }
         finally
         {
@@ -259,6 +416,49 @@ public partial class WorkspaceWindow : Window
         }
     }
 
+        private void RenameProjectButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (ProjectList.SelectedItem is not ProjectProfile project)
+            {
+                return;
+            }
+            var name = selectProjectName(project.Name);
+            if (name is null)
+            {
+                return;
+            }
+            name = name.Trim();
+            if (name.Length == 0)
+            {
+                StatusText.Text = "プロジェクト名を入力してください。";
+                return;
+            }
+            try
+            {
+                var current = store.Load().ToList();
+                var index = current.FindIndex(item => item == project);
+                if (index < 0)
+                {
+                    throw new InvalidOperationException("プロジェクトが別のプロセスで変更されました。");
+                }
+                var updated = project with { Name = name };
+                current[index] = updated;
+                store.Save(current);
+                if (activeProject?.Id == project.Id)
+                {
+                    activeProject = updated;
+                    ActiveProjectText.Text = updated.Name;
+                    Title = $"Chronicler - {updated.Name}";
+                    ShowProjectTree();
+                }
+                ReloadProjects(updated.Id);
+                StatusText.Text = "プロジェクト名を変更しました。";
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+            {
+                StatusText.Text = $"プロジェクト名を変更できません: {ex.Message}";
+            }
+        }
     private void RemoveProjectButton_Click(object sender, RoutedEventArgs e)
     {
         if (ProjectList.SelectedItem is not ProjectProfile project
@@ -277,10 +477,12 @@ public partial class WorkspaceWindow : Window
             if (activeProject?.Id == project.Id)
             {
                 activeProject = null;
+                ServerText.Text = "サーバー: 未選択";
                 ActiveProjectText.Text = "プロジェクトが選択されていません";
                 Title = "Chronicler";
                 ShowProjectTree();
             }
+
             ReloadProjects();
             if (available)
             {
@@ -292,6 +494,28 @@ public partial class WorkspaceWindow : Window
             StatusText.Text = $"プロジェクトの登録を削除できませんでした。\n{ex.Message}";
         }
         UpdateControls();
+    }
+
+    private void LoginButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (ProjectList.SelectedItem is ProjectProfile project)
+        {
+            StatusText.Text = authenticate(project.ServerUrl)
+                ? "認証操作が終了しました。必要に応じて操作をやり直してください。"
+                : "ログインを中止しました。";
+        }
+    }
+
+    private static FileAttributes ReadLoreAttributes(string path)
+    {
+        try
+        {
+            return File.GetAttributes(Path.Combine(path, ".lore"));
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            throw new InvalidOperationException("Loreの管理フォルダーが見つかりません。フォルダーを確認し、必要なら新たにcloneしてください。", ex);
+        }
     }
 
     private void OpenFolderButton_Click(object sender, RoutedEventArgs e)
@@ -321,7 +545,7 @@ public partial class WorkspaceWindow : Window
         if (busy)
         {
             e.Cancel = true;
-            StatusText.Text = "最新取得中です。完了するまでお待ちください。";
+            StatusText.Text = "処理中です。完了するまでお待ちください。";
         }
     }
 

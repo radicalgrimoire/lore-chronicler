@@ -21,9 +21,11 @@
                 <Button x:Name="RefreshTreeButton" Content="リフレッシュ" Padding="12,6" Margin="0,0,8,0"
                         ToolTip="ローカルファイルの表示を更新します。サーバーには接続しません。"
                         Click="RefreshTreeButton_Click" />
-                <Button x:Name="GetLatestButton" Content="Get Latest" Padding="12,6" Margin="0,0,8,0"
-                        ToolTip="現在のプロジェクトをサーバーで確認した最新リビジョンに更新します。"
+                <Button x:Name="GetLatestButton" Content="サーバーから取得" Padding="12,6" Margin="0,0,8,0"
+                        ToolTip="初回はcloneし、clone済みなら最新リビジョンに更新します。"
                         Click="GetLatestButton_Click" />
+                <Button x:Name="LoginButton" Content="ログイン" Padding="12,6" Margin="0,0,8,0"
+                        ToolTip="選択したプロジェクトのサーバーにログインします。" Click="LoginButton_Click" />
                 <Button x:Name="SubmitButton" Content="Submit（未実装）" Padding="12,6"
                         IsEnabled="False" ToolTipService.ShowOnDisabled="True"
                         ToolTip="サーバーへのサブミットは未実装です。" />
@@ -67,6 +69,8 @@
                             Click="CreateProjectButton_Click" />
                     <Button x:Name="SwitchProjectButton" Content="プロジェクトを切り替え" Padding="12,6" Margin="0,0,8,0"
                             Click="SwitchProjectButton_Click" />
+                    <Button x:Name="RenameProjectButton" Content="名前を変更" Padding="12,6" Margin="0,0,8,0"
+                            Click="RenameProjectButton_Click" />
                     <Button x:Name="RemoveProjectButton" Content="登録を削除" Padding="12,6"
                             Click="RemoveProjectButton_Click" />
                 </WrapPanel>
