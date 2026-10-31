@@ -152,13 +152,13 @@ public class MainWindowTests
         });
     }
 
-    private static T Control<T>(Window window, string name) where T : FrameworkElement
+    internal static T Control<T>(Window window, string name) where T : FrameworkElement
         => Assert.IsType<T>(window.FindName(name));
 
-    private static void Click(Window window, string name)
+    internal static void Click(Window window, string name)
         => Control<Button>(window, name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
-    private static void PumpDispatcher()
+    internal static void PumpDispatcher()
     {
         var frame = new DispatcherFrame();
         Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle,
@@ -166,7 +166,7 @@ public class MainWindowTests
         Dispatcher.PushFrame(frame);
     }
 
-    private static void RunSta(Action action)
+    internal static void RunSta(Action action)
     {
         Exception? error = null;
         var thread = new Thread(() =>

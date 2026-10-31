@@ -85,6 +85,7 @@ public sealed class ServerSettingsTests : IDisposable
 
     [Theory]
     [InlineData("{")]
+    [InlineData("null")]
     [InlineData("{}")]
     [InlineData("{\"Version\":2,\"Servers\":[]}")]
     [InlineData("{\"Version\":1,\"Servers\":[null]}")]

@@ -1,0 +1,86 @@
+<Window x:Class="Chronicler.Projects.WorkspaceWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Chronicler" Width="1100" Height="700" MinWidth="780" MinHeight="480"
+        WindowStartupLocation="CenterOwner" Closing="Window_Closing" Closed="Window_Closed">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Border Background="#F1F3F5" Padding="16,10">
+            <DockPanel>
+                <TextBlock Text="Chronicler" FontSize="20" FontWeight="SemiBold" DockPanel.Dock="Left" />
+                <TextBlock x:Name="ServerText" HorizontalAlignment="Right" VerticalAlignment="Center" />
+            </DockPanel>
+        </Border>
+        <Border Grid.Row="1" Background="#F1F3F5" Padding="12,4,12,8">
+            <WrapPanel>
+                <Button x:Name="RefreshTreeButton" Content="リフレッシュ" Padding="12,6" Margin="0,0,8,0"
+                        ToolTip="ローカルファイルの表示を更新します。サーバーには接続しません。"
+                        Click="RefreshTreeButton_Click" />
+                <Button x:Name="GetLatestButton" Content="Get Latest" Padding="12,6" Margin="0,0,8,0"
+                        ToolTip="現在のプロジェクトをサーバーで確認した最新リビジョンに更新します。"
+                        Click="GetLatestButton_Click" />
+                <Button x:Name="SubmitButton" Content="Submit（未実装）" Padding="12,6"
+                        IsEnabled="False" ToolTipService.ShowOnDisabled="True"
+                        ToolTip="サーバーへのサブミットは未実装です。" />
+            </WrapPanel>
+        </Border>
+        <Grid Grid.Row="2" Margin="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MinWidth="250" />
+                <ColumnDefinition Width="5" />
+                <ColumnDefinition Width="*" MinWidth="300" />
+            </Grid.ColumnDefinitions>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <DockPanel Margin="0,0,0,8">
+                    <Button x:Name="OpenFolderButton" Content="フォルダーを開く" DockPanel.Dock="Right"
+                            Padding="10,4" Click="OpenFolderButton_Click" />
+                    <StackPanel>
+                        <TextBlock Text="ローカルファイル" FontWeight="SemiBold" />
+                        <TextBlock x:Name="ActiveProjectText" Text="プロジェクトが選択されていません" Margin="0,4,0,0" />
+                    </StackPanel>
+                </DockPanel>
+                <TreeView x:Name="FileTree" Grid.Row="1" AutomationProperties.Name="ローカルファイル"
+                          VirtualizingStackPanel.IsVirtualizing="True"
+                          VirtualizingStackPanel.VirtualizationMode="Recycling"
+                          ScrollViewer.CanContentScroll="True" />
+            </Grid>
+            <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Background="#D8DDE2" />
+            <Grid Grid.Column="2" Margin="12,0,0,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock Text="プロジェクト" FontSize="17" FontWeight="SemiBold" />
+                <WrapPanel Grid.Row="1" Margin="0,10,0,10">
+                    <Button x:Name="CreateProjectButton" Content="新規プロジェクト" Padding="12,6" Margin="0,0,8,0"
+                            Click="CreateProjectButton_Click" />
+                    <Button x:Name="SwitchProjectButton" Content="プロジェクトを切り替え" Padding="12,6" Margin="0,0,8,0"
+                            Click="SwitchProjectButton_Click" />
+                    <Button x:Name="RemoveProjectButton" Content="登録を削除" Padding="12,6"
+                            Click="RemoveProjectButton_Click" />
+                </WrapPanel>
+                <ListBox x:Name="ProjectList" Grid.Row="2" DisplayMemberPath="Name"
+                         SelectionChanged="ProjectList_SelectionChanged"
+                         MouseDoubleClick="ProjectList_MouseDoubleClick"
+                         AutomationProperties.Name="保存済みプロジェクト" />
+                <StackPanel Grid.Row="3" Margin="0,10,0,0">
+                    <TextBlock x:Name="ProjectDetails" TextWrapping="Wrap" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+        <Border Grid.Row="3" Background="#F1F3F5" Padding="12,8">
+            <TextBlock x:Name="StatusText" TextWrapping="Wrap" />
+        </Border>
+    </Grid>
+</Window>

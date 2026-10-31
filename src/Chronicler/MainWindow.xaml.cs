@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using Chronicler.Authentication;
+using Chronicler.Projects;
 using Chronicler.Servers;
 using LoreVcs;
 
@@ -16,6 +17,7 @@ public partial class MainWindow : Window
     private readonly ILoginService loginService;
     private readonly ILoginBrowser loginBrowser;
     private readonly ServerSettingsStore store;
+    private readonly ProjectSettingsStore projectStore;
     private ServerProfile? activeServer;
     private bool updatingInputs;
     private bool dirty;
@@ -31,6 +33,7 @@ public partial class MainWindow : Window
     public MainWindow(ServerSettingsStore store, ILoginService loginService, ILoginBrowser loginBrowser)
     {
         this.store = store;
+        projectStore = new ProjectSettingsStore(Path.Combine(store.DirectoryPath, "projects.json"));
         this.loginService = loginService;
         this.loginBrowser = loginBrowser;
         InitializeComponent();
@@ -69,6 +72,7 @@ public partial class MainWindow : Window
         SaveButton.IsEnabled = editable;
         RemoveButton.IsEnabled = editable && activeServer is not null;
         LoginButton.IsEnabled = editable && activeServer is not null;
+        ProjectsButton.IsEnabled = editable && activeServer is not null;
     }
 
     private void SetForm(ServerProfile? server)
@@ -144,6 +148,11 @@ public partial class MainWindow : Window
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
+        if (activeServer is not null && !string.Equals(activeServer.RemoteUrl, remoteUrl, StringComparison.OrdinalIgnoreCase)
+            && !CanChangeServer(activeServer.Id))
+        {
+            return;
+        }
 
         var profile = new ServerProfile(activeServer?.Id ?? Guid.NewGuid(), name, remoteUrl);
         var updated = servers.Where(s => s.Id != profile.Id).ToList();
@@ -168,6 +177,10 @@ public partial class MainWindow : Window
     private void RemoveButton_Click(object sender, RoutedEventArgs e)
     {
         if (activeServer is null || !ConfirmDiscard())
+        {
+            return;
+        }
+        if (!CanChangeServer(activeServer.Id))
         {
             return;
         }
@@ -207,6 +220,47 @@ public partial class MainWindow : Window
         }
     }
 
+    private bool CanChangeServer(Guid serverId)
+    {
+        try
+        {
+            if (projectStore.Load().Any(project => project.ServerId == serverId))
+            {
+                MessageBox.Show(this, "このサーバーには登録済みプロジェクトがあります。サーバーの削除やURL変更はできません。",
+                    "サーバー設定", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+        {
+            MessageBox.Show(this, $"プロジェクト設定を確認できません。サーバー設定は変更されていません。\n\n{ex.Message}",
+                "設定エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+    }
+
+    private void ProjectsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (activeServer is null)
+        {
+            return;
+        }
+        if (dirty)
+        {
+            MessageBox.Show(this, "プロジェクトを開く前にサーバー設定を保存してください。", "未保存の変更",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        OpenWorkspace(activeServer);
+    }
+
+    private void OpenWorkspace(ServerProfile server)
+    {
+        var window = new WorkspaceWindow(server, projectStore, new LoreRepositoryService()) { Owner = this };
+        window.ShowDialog();
+    }
+
     private async void LoginButton_Click(object sender, RoutedEventArgs e)
     {
         if (activeServer is null)
@@ -228,6 +282,7 @@ public partial class MainWindow : Window
         OpenBrowserButton.Visibility = Visibility.Collapsed;
         UpdateControls();
         var progress = new Progress<LoginProgress>(OnLoginProgress);
+        var loginSucceeded = false;
         try
         {
             var userName = await loginService.LoginAsync(activeServer.RemoteUrl, progress);
@@ -235,6 +290,7 @@ public partial class MainWindow : Window
                 ? "ログインが完了しました。"
                 : $"{userName} としてログインしました。";
             FooterStatus.Text = "認証情報はLore SDKが管理します。";
+            loginSucceeded = true;
         }
         catch (LoreError ex)
         {
@@ -252,6 +308,10 @@ public partial class MainWindow : Window
             UserCodeText.Text = string.Empty;
             OpenBrowserButton.Visibility = Visibility.Collapsed;
             UpdateControls();
+        }
+        if (loginSucceeded && IsVisible && activeServer is not null)
+        {
+            OpenWorkspace(activeServer);
         }
     }
 

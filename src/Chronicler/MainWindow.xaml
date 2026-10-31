@@ -61,6 +61,8 @@
                             Click="RemoveButton_Click" />
                     <Button x:Name="LoginButton" Content="ログイン" Padding="16,7" Margin="0,0,8,8"
                             Click="LoginButton_Click" />
+                    <Button x:Name="ProjectsButton" Content="作業画面を開く" Padding="16,7" Margin="0,0,8,8"
+                            Click="ProjectsButton_Click" />
                 </WrapPanel>
                 <StackPanel Grid.Row="4" Margin="0,16,0,0">
                     <TextBlock x:Name="LoginStatus" TextWrapping="Wrap" />
