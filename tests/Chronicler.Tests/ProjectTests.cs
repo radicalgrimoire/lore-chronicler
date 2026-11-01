@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.IO;
+using System.Windows;
 using System.Windows.Controls;
 using Chronicler.Projects;
 using Chronicler.Servers;
@@ -82,6 +83,130 @@ public sealed class ProjectTests : IDisposable
         Assert.Equal("keep", File.ReadAllText(marker));
     }
 
+    [Fact]
+    public void ProjectWindowOffersOnlyProjectFolderSelection()
+    {
+        RunSta(() =>
+        {
+            var window = CreateWindow(new FakeRepositoryService());
+            Assert.NotNull(window.FindName("BrowseButton"));
+            Assert.Null(window.FindName("BrowseParentButton"));
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void ProjectFieldsAreOrderedByNameFolderAndRepository()
+    {
+        RunSta(() =>
+        {
+            var window = CreateWindow(new FakeRepositoryService());
+            Assert.True(Grid.GetRow(Control<StackPanel>(window, "ProjectNameSection"))
+                < Grid.GetRow(Control<StackPanel>(window, "ProjectFolderSection")));
+            Assert.True(Grid.GetRow(Control<StackPanel>(window, "ProjectFolderSection"))
+                < Grid.GetRow(Control<StackPanel>(window, "ServerSection")));
+            Assert.True(Grid.GetRow(Control<StackPanel>(window, "ServerSection"))
+                < Grid.GetRow(Control<ListBox>(window, "RepositoryList")));
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void RepositorySelectionPreservesAnEnteredProjectName()
+    {
+        RunSta(() =>
+        {
+            var window = CreateWindow(new FakeRepositoryService());
+            Control<TextBox>(window, "ProjectName").Text = "Custom name";
+            SelectRepository(window);
+            Assert.Equal("Custom name", Control<TextBox>(window, "ProjectName").Text);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void RepositorySelectionPreservesAnExplicitNameMatchingPreviousRepository()
+    {
+        RunSta(() =>
+        {
+            Directory.CreateDirectory(directory);
+            var service = new FakeRepositoryService { Names = ["team/repo", "team/second"] };
+            var window = CreateWindow(service);
+            SelectRepository(window);
+            var name = Control<TextBox>(window, "ProjectName");
+            name.Text = "team/repo-custom";
+            name.Text = "team/repo";
+            Control<ListBox>(window, "RepositoryList").SelectedIndex = 1;
+            Control<TextBox>(window, "LocalPath").Text = Path.Combine(directory, "clone");
+            Click(window, "CreateButton");
+            var project = Assert.Single(new ProjectSettingsStore(SettingsPath).Load());
+            Assert.Equal("team/repo", project.Name);
+            Assert.Equal("team/second", project.RepositoryName);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void RepositorySelectionUpdatesSuggestedNameUntilManuallyEdited()
+    {
+        RunSta(() =>
+        {
+            var service = new FakeRepositoryService { Names = ["team/repo", "team/second"] };
+            var window = CreateWindow(service);
+            SelectRepository(window);
+            var name = Control<TextBox>(window, "ProjectName");
+            var repositories = Control<ListBox>(window, "RepositoryList");
+            Assert.Equal("team/repo", name.Text);
+            repositories.SelectedIndex = 1;
+            Assert.Equal("team/second", name.Text);
+            name.Text = "Custom name";
+            repositories.SelectedIndex = 0;
+            Assert.Equal("Custom name", name.Text);
+            name.Text = "";
+            repositories.SelectedIndex = 1;
+            Assert.Equal("team/second", name.Text);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void NewCloneSavesEnteredProjectNameInsteadOfRepositoryName()
+    {
+        RunSta(() =>
+        {
+            Directory.CreateDirectory(directory);
+            var window = CreateWindow(new FakeRepositoryService());
+            Control<TextBox>(window, "ProjectName").Text = "Custom name";
+            Control<TextBox>(window, "LocalPath").Text = Path.Combine(directory, "clone");
+            SelectRepository(window);
+            Click(window, "CreateButton");
+            var project = Assert.Single(new ProjectSettingsStore(SettingsPath).Load());
+            Assert.Equal("Custom name", project.Name);
+            Assert.Equal("team/repo", project.RepositoryName);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void ExistingCloneSavesEnteredProjectNameInsteadOfRepositoryName()
+    {
+        RunSta(() =>
+        {
+            var path = Path.Combine(directory, "existing");
+            Directory.CreateDirectory(Path.Combine(path, ".lore"));
+            var info = new FakeProjectRepositoryInfo { Name = "team/repo" };
+            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), new FakeRepositoryService(),
+                (_, _) => true, info, _ => true);
+            Control<TextBox>(window, "ProjectName").Text = "Custom name";
+            Control<TextBox>(window, "LocalPath").Text = path;
+            Click(window, "CreateButton");
+            var project = Assert.Single(new ProjectSettingsStore(SettingsPath).Load());
+            Assert.Equal("Custom name", project.Name);
+            Assert.Equal("team/repo", project.RepositoryName);
+            window.Close();
+        });
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -114,12 +239,228 @@ public sealed class ProjectTests : IDisposable
         {
             var service = new FakeRepositoryService();
             var window = CreateWindow(service);
+            window.Show();
             SelectRepository(window);
-            Control<TextBox>(window, "ServerUrlInput").Text = "lore://other.example:41337";
+            Control<ComboBox>(window, "ServerUrlInput").Text = "lore://other.example:41337";
             Assert.Null(Control<ListBox>(window, "RepositoryList").SelectedItem);
             Control<TextBox>(window, "LocalPath").Text = Path.Combine(directory, "clone");
             Click(window, "CreateButton");
             Assert.Empty(new ProjectSettingsStore(SettingsPath).Load());
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void SavedServersAreDistinctAndCanBeSelectedAgainAfterEditing()
+    {
+        RunSta(() =>
+        {
+            var store = new ProjectSettingsStore(SettingsPath);
+            store.Load();
+            store.Save([
+                new ProjectProfile(Guid.NewGuid(), "One", server.Id, server.RemoteUrl, "repo", Path.Combine(directory, "one")),
+                new ProjectProfile(Guid.NewGuid(), "Two", Guid.NewGuid(), server.RemoteUrl + "/", "repo", Path.Combine(directory, "two")),
+                new ProjectProfile(Guid.NewGuid(), "Three", Guid.NewGuid(), "lore://other.example:41337", "repo", Path.Combine(directory, "three"))
+            ]);
+            var service = new FakeRepositoryService();
+            string? authUrl = null;
+            var window = new ProjectWindow(server, store, service,
+                (_, _) => true, new FakeProjectRepositoryInfo(), url => { authUrl = url; return true; });
+            window.Show();
+            var savedServers = Control<ComboBox>(window, "ServerUrlInput");
+            Assert.Equal(2, savedServers.Items.Count);
+            Assert.True(savedServers.IsEnabled);
+            SelectRepository(window);
+            savedServers.SelectedItem = "lore://other.example:41337";
+            Assert.Equal("lore://other.example:41337", savedServers.Text);
+            Assert.Empty(Control<ListBox>(window, "RepositoryList").Items);
+            Click(window, "FetchButton");
+            PumpDispatcher();
+            Assert.Equal("lore://other.example:41337", authUrl);
+            Assert.Equal(authUrl, service.ListedServerUrl);
+            savedServers.Text = "lore://new.example:41337";
+            Assert.Null(savedServers.SelectedItem);
+            savedServers.SelectedItem = "lore://other.example:41337";
+            Assert.Equal("lore://other.example:41337", savedServers.Text);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void ServerUrlCanBeEnteredWithoutSavedProjects()
+    {
+        RunSta(() =>
+        {
+            var window = CreateWindow(new FakeRepositoryService());
+            var savedServers = Control<ComboBox>(window, "ServerUrlInput");
+            Assert.Empty(savedServers.Items);
+            Assert.True(savedServers.IsEnabled);
+            Assert.True(savedServers.IsEditable);
+            savedServers.Text = "lore://new.example:41337";
+            Assert.Equal("lore://new.example:41337", savedServers.Text);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void FetchingRepositoriesAuthenticatesForTheEnteredServer()
+    {
+        RunSta(() =>
+        {
+            string? authUrl = null;
+            var service = new FakeRepositoryService();
+            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), service,
+                (_, _) => true, new FakeProjectRepositoryInfo(), url => { authUrl = url; return true; });
+            Control<ComboBox>(window, "ServerUrlInput").Text = "lore://other.example:41337";
+            Assert.Null(window.FindName("LoginButton"));
+            Click(window, "FetchButton");
+            PumpDispatcher();
+            Assert.Equal("lore://other.example:41337", authUrl);
+            Assert.Equal(authUrl, service.ListedServerUrl);
+            Assert.Single(Control<ListBox>(window, "RepositoryList").Items);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void CancellingAuthenticationDoesNotFetchRepositories()
+    {
+        RunSta(() =>
+        {
+            var service = new FakeRepositoryService();
+            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), service,
+                (_, _) => true, new FakeProjectRepositoryInfo(), _ => false);
+            Click(window, "FetchButton");
+            PumpDispatcher();
+            Assert.Null(service.ListedServerUrl);
+            Assert.Empty(Control<ListBox>(window, "RepositoryList").Items);
+            Assert.Contains("中止", Control<TextBlock>(window, "StatusText").Text);
+            Assert.True(Control<Button>(window, "FetchButton").IsEnabled);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void ExistingCloneFolderPopulatesServerWithoutNetworkAccess()
+    {
+        RunSta(() =>
+        {
+            var path = Path.Combine(directory, "existing");
+            Directory.CreateDirectory(Path.Combine(path, ".lore"));
+            var info = new FakeProjectRepositoryInfo { RemoteUrl = "lore://other.example:41337" };
+            var service = new FakeRepositoryService();
+            var authCalls = 0;
+            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), service,
+                (_, _) => true, info, _ => { authCalls++; return true; });
+            window.Show();
+            var folder = Control<TextBox>(window, "LocalPath");
+            folder.Text = path;
+            folder.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent));
+            PumpDispatcher();
+            Assert.Equal(info.RemoteUrl, Control<ComboBox>(window, "ServerUrlInput").Text);
+            Assert.Null(service.ListedServerUrl);
+            Assert.Equal(0, info.RemoteCalls);
+            Assert.Equal(0, authCalls);
+            window.Close();
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DelayedFolderServerReadDoesNotOverwriteNewInput(bool changeFolder)
+    {
+        RunSta(() =>
+        {
+            var path = Path.Combine(directory, "existing");
+            Directory.CreateDirectory(Path.Combine(path, ".lore"));
+            var completion = new TaskCompletionSource<string>();
+            var info = new FakeProjectRepositoryInfo { ReadServerUrl = _ => completion.Task };
+            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), new FakeRepositoryService(),
+                (_, _) => true, info, _ => true);
+            window.Show();
+            var folder = Control<TextBox>(window, "LocalPath");
+            var url = Control<ComboBox>(window, "ServerUrlInput");
+            folder.Text = path;
+            folder.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent));
+            if (changeFolder) folder.Text = Path.Combine(directory, "other");
+            else url.Text = "lore://manual.example:41337";
+            completion.SetResult("lore://old.example:41337");
+            PumpDispatcher();
+            Assert.Equal(changeFolder ? server.RemoteUrl : "lore://manual.example:41337", url.Text);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void FolderServerReadReportsErrorsWithoutReplacingUrl()
+    {
+        RunSta(() =>
+        {
+            var path = Path.Combine(directory, "existing");
+            Directory.CreateDirectory(Path.Combine(path, ".lore"));
+            var info = new FakeProjectRepositoryInfo { ReadServerUrl = _ => Task.FromException<string>(new IOException("config error")) };
+            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), new FakeRepositoryService(),
+                (_, _) => true, info, _ => true);
+            var folder = Control<TextBox>(window, "LocalPath");
+            folder.Text = path;
+            folder.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent));
+            PumpDispatcher();
+            Assert.Equal(server.RemoteUrl, Control<ComboBox>(window, "ServerUrlInput").Text);
+            Assert.Contains("config error", Control<TextBlock>(window, "StatusText").Text);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void FolderServerReadMustFinishBeforeFetchingRepositories()
+    {
+        RunSta(() =>
+        {
+            var path = Path.Combine(directory, "existing");
+            Directory.CreateDirectory(Path.Combine(path, ".lore"));
+            var completion = new TaskCompletionSource<string>();
+            var info = new FakeProjectRepositoryInfo { ReadServerUrl = _ => completion.Task };
+            var service = new FakeRepositoryService();
+            var authCalls = 0;
+            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), service,
+                (_, _) => true, info, _ => { authCalls++; return true; });
+            window.Show();
+            var folder = Control<TextBox>(window, "LocalPath");
+            folder.Text = path;
+            folder.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent));
+            Click(window, "FetchButton");
+            Assert.Equal(0, authCalls);
+            Assert.Null(service.ListedServerUrl);
+            Assert.Contains("読み取り中", Control<TextBlock>(window, "StatusText").Text);
+            completion.SetResult("lore://other.example:41337");
+            PumpDispatcher();
+            Click(window, "FetchButton");
+            PumpDispatcher();
+            Assert.Equal(1, authCalls);
+            Assert.Equal("lore://other.example:41337", service.ListedServerUrl);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void NewCloneFolderDoesNotReplaceServerUrl()
+    {
+        RunSta(() =>
+        {
+            Directory.CreateDirectory(directory);
+            var info = new FakeProjectRepositoryInfo
+            {
+                ReadServerUrl = _ => throw new InvalidOperationException("Unexpected configuration read")
+            };
+            var window = new ProjectWindow(server, new ProjectSettingsStore(SettingsPath), new FakeRepositoryService(),
+                (_, _) => true, info, _ => true);
+            var folder = Control<TextBox>(window, "LocalPath");
+            folder.Text = directory;
+            folder.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent));
+            PumpDispatcher();
+            Assert.Equal(server.RemoteUrl, Control<ComboBox>(window, "ServerUrlInput").Text);
+            Assert.DoesNotContain("Unexpected", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }
@@ -238,7 +579,13 @@ public sealed class ProjectTests : IDisposable
     private sealed class FakeRepositoryService : IRepositoryService
     {
         public string? Path { get; private set; }
-        public Task<IReadOnlyList<string>> ListAsync(string serverUrl) => Task.FromResult<IReadOnlyList<string>>(["team/repo"]);
+        public string? ListedServerUrl { get; private set; }
+        public IReadOnlyList<string> Names { get; init; } = ["team/repo"];
+        public Task<IReadOnlyList<string>> ListAsync(string serverUrl)
+        {
+            ListedServerUrl = serverUrl;
+            return Task.FromResult(Names);
+        }
         public Task CloneAsync(string serverUrl, string repositoryName, string path, IProgress<string> progress)
         {
             Path = path;

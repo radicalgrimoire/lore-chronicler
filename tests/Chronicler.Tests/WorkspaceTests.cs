@@ -28,6 +28,58 @@ public sealed class WorkspaceTests : IDisposable
     }
 
     [Fact]
+    public void WorkspaceTabsPreserveProjectSelectionAndOperations()
+    {
+        RunSta(() =>
+        {
+            var store = new ProjectSettingsStore(Path.Combine(directory, "projects.json"));
+            store.Load();
+            var project = new ProjectProfile(Guid.NewGuid(), "Project", server.Id, server.RemoteUrl, "repo",
+                Path.Combine(directory, "clone"), CloneState: ProjectCloneState.Pending);
+            store.Save([project]);
+            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
+                repositoryInfo: new FakeProjectRepositoryInfo(), selectProjectName: _ => "Renamed");
+            window.Show();
+            var tabs = Control<TabControl>(window, "WorkspaceTabs");
+            var projects = Control<TabItem>(window, "ProjectsTab");
+            var stage = Control<TabItem>(window, "StageTab");
+            var log = Control<TabItem>(window, "UpdateLogTab");
+            var list = Control<ListBox>(window, "ProjectList");
+            Assert.Equal(3, tabs.Items.Count);
+            Assert.Same(projects, tabs.SelectedItem);
+            Assert.Equal("プロジェクト", projects.Header);
+            Assert.Equal("ステージ", stage.Header);
+            Assert.Equal("更新ログ", log.Header);
+            list.SelectedIndex = 0;
+            Click(window, "SwitchProjectButton");
+            var status = Control<TextBlock>(window, "StatusText").Text;
+
+            tabs.SelectedItem = stage;
+            PumpDispatcher();
+            Assert.True(Assert.IsType<TextBlock>(stage.Content).IsVisible);
+            Assert.Contains("未実装", Assert.IsType<TextBlock>(stage.Content).Text);
+            tabs.SelectedItem = log;
+            PumpDispatcher();
+            Assert.True(Assert.IsType<Grid>(log.Content).IsVisible);
+            Assert.Contains("初回取得後", Control<TextBox>(window, "HistoryStatus").Text);
+            Assert.Equal("Project", Control<TextBlock>(window, "ActiveProjectText").Text);
+            Assert.Equal(status, Control<TextBlock>(window, "StatusText").Text);
+
+            tabs.SelectedItem = projects;
+            PumpDispatcher();
+            Assert.True(list.IsVisible);
+            Assert.Equal(project, list.SelectedItem);
+            Assert.True(Control<Button>(window, "CreateProjectButton").IsEnabled);
+            Assert.True(Control<Button>(window, "SwitchProjectButton").IsEnabled);
+            Click(window, "RenameProjectButton");
+            Assert.Equal("Renamed", Assert.IsType<ProjectProfile>(list.SelectedItem).Name);
+            Assert.Equal("Renamed", Control<TextBlock>(window, "ActiveProjectText").Text);
+            Assert.Equal("Renamed", Assert.Single(new ProjectSettingsStore(Path.Combine(directory, "projects.json")).Load()).Name);
+            window.Close();
+        });
+    }
+
+    [Fact]
     public void SwitchingProjectsUpdatesTreeAndRemovalKeepsFiles()
     {
         RunSta(() =>
@@ -266,6 +318,8 @@ public sealed class WorkspaceTests : IDisposable
             PumpDispatcher();
             var saved = Assert.Single(new ProjectSettingsStore(settingsPath).Load());
             Assert.Equal(ProjectCloneState.Ready, saved.CloneState);
+            Assert.Equal("Project", saved.Name);
+            Assert.Equal("Project", Control<TextBlock>(window, "ActiveProjectText").Text);
             Assert.Equal(info.RepositoryId, saved.RepositoryId);
             Click(window, "GetLatestButton");
             Assert.Equal(path, latest.Path);
@@ -423,6 +477,117 @@ public sealed class WorkspaceTests : IDisposable
         });
     }
 
+    [Fact]
+    public void BranchSelectionLoadsSwitchesAndRefreshesCurrentBranch()
+    {
+        RunSta(() =>
+        {
+            var path = CreateRepository("branch", "keep.txt");
+            var store = new ProjectSettingsStore(Path.Combine(directory, "projects.json"));
+            store.Load();
+            var info = new FakeProjectRepositoryInfo();
+            store.Save([new ProjectProfile(Guid.NewGuid(), "Project", server.Id, server.RemoteUrl, "repo", path, info.RepositoryId)]);
+            var branches = new FakeBranchService();
+            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
+                repositoryInfo: info, branchService: branches);
+            Assert.False(Control<Button>(window, "RefreshBranchesButton").IsEnabled);
+            Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
+            Click(window, "SwitchProjectButton");
+            Click(window, "RefreshBranchesButton");
+            Assert.Contains("main", Control<TextBlock>(window, "CurrentBranchText").Text);
+            var list = Control<ComboBox>(window, "BranchList");
+            Assert.Equal(2, list.Items.Count);
+            Assert.False(Control<Button>(window, "SwitchBranchButton").IsEnabled);
+            list.SelectedIndex = 1;
+            Click(window, "SwitchBranchButton");
+            Assert.Equal("feature", branches.Switched?.Name);
+            Assert.False(Control<Button>(window, "SwitchProjectButton").IsEnabled);
+            branches.Completion.SetResult();
+            PumpDispatcher();
+            Assert.Contains("feature", Control<TextBlock>(window, "CurrentBranchText").Text);
+            Assert.Contains("切り替えました", Control<TextBlock>(window, "StatusText").Text);
+            Assert.True(Control<Button>(window, "SwitchProjectButton").IsEnabled);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void FailedBranchSwitchRefreshesStateAndReportsPartialChanges()
+    {
+        RunSta(() =>
+        {
+            var path = CreateRepository("branch-error", "keep.txt");
+            var store = new ProjectSettingsStore(Path.Combine(directory, "projects.json"));
+            store.Load();
+            var info = new FakeProjectRepositoryInfo();
+            store.Save([new ProjectProfile(Guid.NewGuid(), "Project", server.Id, server.RemoteUrl, "repo", path, info.RepositoryId)]);
+            var branches = new FakeBranchService { RemoteAvailable = false };
+            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
+                repositoryInfo: info, branchService: branches);
+            Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
+            Click(window, "SwitchProjectButton");
+            Click(window, "RefreshBranchesButton");
+            Assert.Contains("サーバーの一覧は取得できません", Control<TextBlock>(window, "StatusText").Text);
+            Control<ComboBox>(window, "BranchList").SelectedIndex = 1;
+            Click(window, "SwitchBranchButton");
+            branches.Completion.SetException(new LoreVcs.LoreError(42));
+            PumpDispatcher();
+            Assert.Contains("一部変更", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("main", Control<TextBlock>(window, "CurrentBranchText").Text);
+            Assert.Equal(2, branches.ListCalls);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void DecliningBranchSwitchDoesNotCallSdk()
+    {
+        RunSta(() =>
+        {
+            var path = CreateRepository("branch-declined", "keep.txt");
+            var store = new ProjectSettingsStore(Path.Combine(directory, "projects.json"));
+            store.Load();
+            var info = new FakeProjectRepositoryInfo();
+            store.Save([new ProjectProfile(Guid.NewGuid(), "Project", server.Id, server.RemoteUrl, "repo", path, info.RepositoryId)]);
+            var branches = new FakeBranchService();
+            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => false,
+                repositoryInfo: info, branchService: branches);
+            Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
+            Click(window, "SwitchProjectButton");
+            Click(window, "RefreshBranchesButton");
+            Control<ComboBox>(window, "BranchList").SelectedIndex = 1;
+            Click(window, "SwitchBranchButton");
+            Assert.Null(branches.Switched);
+            Assert.Contains("main", Control<TextBlock>(window, "CurrentBranchText").Text);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void ChangedRepositoryBlocksBranchSwitch()
+    {
+        RunSta(() =>
+        {
+            var path = CreateRepository("branch-changed", "keep.txt");
+            var store = new ProjectSettingsStore(Path.Combine(directory, "projects.json"));
+            store.Load();
+            var info = new FakeProjectRepositoryInfo();
+            store.Save([new ProjectProfile(Guid.NewGuid(), "Project", server.Id, server.RemoteUrl, "repo", path, info.RepositoryId)]);
+            var branches = new FakeBranchService();
+            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
+                repositoryInfo: info, branchService: branches);
+            Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
+            Click(window, "SwitchProjectButton");
+            Click(window, "RefreshBranchesButton");
+            Control<ComboBox>(window, "BranchList").SelectedIndex = 1;
+            info.RepositoryId = "ABCDEF1234567890ABCDEF1234567890";
+            Click(window, "SwitchBranchButton");
+            Assert.Null(branches.Switched);
+            Assert.Contains("一致しません", Control<TextBlock>(window, "StatusText").Text);
+            window.Close();
+        });
+    }
+
     private static void WaitForChildren(TreeView tree, string expected)
     {
         WaitForChild(Assert.IsType<TreeViewItem>(tree.Items[0]), expected);
@@ -476,6 +641,30 @@ public sealed class WorkspaceTests : IDisposable
         {
             Path = path;
             Calls++;
+            return Completion.Task;
+        }
+    }
+
+    private sealed class FakeBranchService : IBranchService
+    {
+        private readonly BranchEntry main = new("11111111111111111111111111111111", "main", true, true, true);
+        private readonly BranchEntry feature = new("22222222222222222222222222222222", "feature", true, true, false);
+        public BranchEntry? Switched { get; private set; }
+        public bool RemoteAvailable { get; init; } = true;
+        public int ListCalls { get; private set; }
+        public TaskCompletionSource Completion { get; } = new();
+
+        public Task<BranchListResult> ListAsync(string path)
+        {
+            ListCalls++;
+            var switched = Completion.Task.IsCompletedSuccessfully;
+            return Task.FromResult(new BranchListResult(
+                [main with { IsCurrent = !switched }, feature with { IsCurrent = switched }], RemoteAvailable));
+        }
+
+        public Task SwitchAsync(string path, BranchEntry branch)
+        {
+            Switched = branch;
             return Completion.Task;
         }
     }

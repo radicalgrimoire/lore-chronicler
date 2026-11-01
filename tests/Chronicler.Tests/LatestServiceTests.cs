@@ -127,6 +127,7 @@ public sealed class LatestServiceTests
                 using var globals = new LoreGlobalArgs { RepositoryPath = directory, Offline = true };
                 using var create = new LoreRepositoryCreateArgs { RepositoryUrl = $"lore://localhost:41337/test-{Guid.NewGuid():N}" };
                 await Lore.RepositoryCreate(globals, create).WaitAsync();
+                Assert.Equal("lore://localhost:41337", await new ProjectRepositoryInfo().ReadServerUrlAsync(directory));
                 var info = await new ProjectRepositoryInfo().ReadLocalAsync(directory);
                 Assert.Equal("lore://localhost:41337", info.RemoteUrl);
                 Assert.Equal(32, info.RepositoryId.Length);

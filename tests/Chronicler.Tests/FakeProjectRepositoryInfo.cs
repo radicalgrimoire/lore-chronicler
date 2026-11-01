@@ -10,10 +10,19 @@ internal sealed class FakeProjectRepositoryInfo : IProjectRepositoryInfo
     public string? Name { get; set; }
     public string? ServerRepositoryId { get; set; }
     public Exception? RemoteError { get; set; }
+    public Exception? LocalError { get; set; }
     public int RemoteCalls { get; private set; }
+    public Func<string, Task<string>>? ReadServerUrl { get; set; }
+
+    public Task<string> ReadServerUrlAsync(string path) =>
+        ReadServerUrl?.Invoke(path) ?? Task.FromResult(RemoteUrl);
 
     public Task<LocalRepositoryInfo> ReadLocalAsync(string path)
     {
+        if (LocalError is not null)
+        {
+            throw LocalError;
+        }
         if (!Directory.Exists(Path.Combine(path, ".lore")))
         {
             throw new DirectoryNotFoundException(path);

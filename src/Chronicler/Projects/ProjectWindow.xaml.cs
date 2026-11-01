@@ -19,6 +19,11 @@ public partial class ProjectWindow : Window
     private readonly Func<string, bool> authenticate;
     private bool available;
     private bool busy;
+    private bool closed;
+    private bool projectNameEdited;
+    private bool settingSuggestedProjectName;
+    private int folderReadVersion;
+    private int? activeFolderReadVersion;
     private string? listedServerUrl;
     public ProjectProfile? CreatedProject { get; private set; }
 
@@ -36,7 +41,13 @@ public partial class ProjectWindow : Window
         ServerUrlInput.Text = server.RemoteUrl;
         try
         {
-            store.Load();
+            var servers = new List<string>();
+            foreach (var project in store.Load().OrderBy(project => project.ServerUrl, StringComparer.OrdinalIgnoreCase))
+            {
+                if (!servers.Any(url => ProjectRepositoryInfo.SameServer(url, project.ServerUrl)))
+                    servers.Add(project.ServerUrl);
+            }
+            ServerUrlInput.ItemsSource = servers;
             available = true;
             StatusText.Text = "フォルダーを指定してください。";
         }
@@ -50,13 +61,18 @@ public partial class ProjectWindow : Window
     private void UpdateControls()
     {
         var editable = available && !busy;
-        FetchButton.IsEnabled = ServerUrlInput.IsEnabled = LoginButton.IsEnabled = editable;
+        FetchButton.IsEnabled = ServerUrlInput.IsEnabled = editable;
         RepositoryList.IsEnabled = ProjectName.IsEnabled = LocalPath.IsEnabled = editable;
-        BrowseButton.IsEnabled = BrowseParentButton.IsEnabled = CreateButton.IsEnabled = editable;
+        BrowseButton.IsEnabled = CreateButton.IsEnabled = editable;
     }
 
     private async void FetchButton_Click(object sender, RoutedEventArgs e)
     {
+        if (activeFolderReadVersion is not null)
+        {
+            StatusText.Text = "フォルダーのサーバーURLを読み取り中です。完了までお待ちください。";
+            return;
+        }
         var url = ServerUrlInput.Text.Trim();
         if (!ServerProfileValidator.TryValidate("server", url, out var error))
         {
@@ -67,9 +83,14 @@ public partial class ProjectWindow : Window
         RepositoryList.ItemsSource = null;
         listedServerUrl = null;
         UpdateControls();
-        StatusText.Text = "リポジトリ一覧を取得しています…";
         try
         {
+            if (!authenticate(url))
+            {
+                StatusText.Text = "リポジトリ一覧の取得を中止しました。";
+                return;
+            }
+            StatusText.Text = "リポジトリ一覧を取得しています…";
             var names = await repositoryService.ListAsync(url);
             RepositoryList.ItemsSource = names;
             listedServerUrl = url;
@@ -94,51 +115,119 @@ public partial class ProjectWindow : Window
     private void ServerUrlInput_TextChanged(object sender, TextChangedEventArgs e)
     {
         if (RepositoryList is null) return;
+        CancelFolderRead();
         RepositoryList.ItemsSource = null;
         listedServerUrl = null;
         UpdateControls();
     }
 
-    private void LoginButton_Click(object sender, RoutedEventArgs e)
+    private void ServerUrlInput_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        var url = ServerUrlInput.Text.Trim();
-        if (!ServerProfileValidator.TryValidate("server", url, out var error))
-        {
-            StatusText.Text = error;
-            return;
-        }
-        authenticate(url);
+        if (RepositoryList is null) return;
+        CancelFolderRead();
+        RepositoryList.ItemsSource = null;
+        listedServerUrl = null;
+        UpdateControls();
     }
 
     private void RepositoryList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        var oldName = e.RemovedItems.OfType<string>().FirstOrDefault();
         if (RepositoryList.SelectedItem is string name
-            && (string.IsNullOrWhiteSpace(ProjectName.Text) || ProjectName.Text == oldName))
+            && !projectNameEdited)
         {
-            ProjectName.Text = name;
+            settingSuggestedProjectName = true;
+            try
+            {
+                ProjectName.Text = name;
+            }
+            finally
+            {
+                settingSuggestedProjectName = false;
+            }
         }
         UpdateControls();
     }
 
-    private void BrowseButton_Click(object sender, RoutedEventArgs e)
+    private void ProjectName_TextChanged(object sender, TextChangedEventArgs e)
     {
-        var dialog = new OpenFolderDialog { Title = "プロジェクトフォルダーを選択" };
-        if (dialog.ShowDialog(this) == true) LocalPath.Text = dialog.FolderName;
+        if (!settingSuggestedProjectName && sender is TextBox textBox)
+            projectNameEdited = !string.IsNullOrWhiteSpace(textBox.Text);
     }
 
-    private void BrowseParentButton_Click(object sender, RoutedEventArgs e)
+    private async void BrowseButton_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new OpenFolderDialog { Title = "プロジェクトフォルダーの親を選択" };
+        var dialog = new OpenFolderDialog { Title = "プロジェクトフォルダーを選択" };
         if (dialog.ShowDialog(this) == true)
         {
-            var folderName = (RepositoryList.SelectedItem as string)?.Split('/').LastOrDefault();
-            LocalPath.Text = string.IsNullOrEmpty(folderName) ? dialog.FolderName : Path.Combine(dialog.FolderName, folderName);
+            LocalPath.Text = dialog.FolderName;
+            await ReadFolderServerAsync();
+        }
+    }
+
+    private void CancelFolderRead()
+    {
+        folderReadVersion++;
+        if (activeFolderReadVersion is not null)
+        {
+            activeFolderReadVersion = null;
+            StatusText.Text = "フォルダーまたはサーバーURLを確認してください。";
+        }
+    }
+
+    private void LocalPath_TextChanged(object sender, TextChangedEventArgs e) => CancelFolderRead();
+
+    private async void LocalPath_LostFocus(object sender, RoutedEventArgs e) => await ReadFolderServerAsync();
+
+    private async Task ReadFolderServerAsync()
+    {
+        var version = ++folderReadVersion;
+        if (!available || busy || !ProjectValidator.TryNormalizePath(LocalPath.Text, out var path, out _))
+            return;
+        var previousUrl = ServerUrlInput.Text;
+        bool IsCurrent() => !closed && !busy && version == folderReadVersion && ServerUrlInput.Text == previousUrl;
+        try
+        {
+            FileAttributes attributes;
+            try { attributes = File.GetAttributes(Path.Combine(path, ".lore")); }
+            catch (FileNotFoundException) { return; }
+            catch (DirectoryNotFoundException) { return; }
+            if ((attributes & FileAttributes.Directory) == 0)
+                throw new InvalidOperationException("選択したフォルダーの .lore はフォルダーではありません。");
+
+            activeFolderReadVersion = version;
+            StatusText.Text = "フォルダーのサーバーURLを読み取り中です。";
+            var url = await repositoryInfo.ReadServerUrlAsync(path);
+            if (!IsCurrent()) return;
+            if (!ServerProfileValidator.TryValidate("server", url, out var error))
+                throw new InvalidOperationException(error);
+            ServerUrlInput.Text = url;
+            StatusText.Text = "LoreリポジトリのサーバーURLを読み取りました。";
+        }
+        catch (LoreError ex)
+        {
+            if (IsCurrent())
+                StatusText.Text = $"LoreのサーバーURLを読み取れません（Loreエラー {ex.ReturnCode}）。";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+            or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+        {
+            if (IsCurrent())
+                StatusText.Text = $"LoreのサーバーURLを読み取れません: {ex.Message}";
+        }
+        finally
+        {
+            if (activeFolderReadVersion == version)
+                activeFolderReadVersion = null;
         }
     }
 
     private async void CreateButton_Click(object sender, RoutedEventArgs e)
     {
+        if (activeFolderReadVersion is not null)
+        {
+            StatusText.Text = "フォルダーのサーバーURLを読み取り中です。完了までお待ちください。";
+            return;
+        }
         if (!ProjectValidator.TryNormalizePath(LocalPath.Text, out var path, out var error))
         {
             StatusText.Text = error;
@@ -229,5 +318,8 @@ public partial class ProjectWindow : Window
             StatusText.Text = "処理中はウィンドウを閉じられません。完了までお待ちください。";
             e.Cancel = true;
         }
+
     }
+
+    private void Window_Closed(object? sender, EventArgs e) => closed = true;
 }

@@ -20,6 +20,8 @@ public partial class WorkspaceWindow : Window
     private readonly IRepositoryService repositoryService;
     private readonly ILatestService latestService;
     private readonly IProjectRepositoryInfo repositoryInfo;
+    private readonly IBranchService branchService;
+    private readonly IRevisionHistoryService historyService;
     private readonly Func<string, string, bool> confirm;
     private readonly Func<string, string?> selectProjectName;
     private readonly Func<string, bool> authenticate;
@@ -28,6 +30,10 @@ public partial class WorkspaceWindow : Window
     private CancellationTokenSource treeCancellation = new();
     private bool available;
     private bool busy;
+    private bool closed;
+    private bool historyLoading;
+    private bool historyNeedsRefresh = true;
+    private int historyVersion;
 
     public WorkspaceWindow() : this(new ServerProfile(Guid.NewGuid(), "server", string.Empty),
         new ProjectSettingsStore(ProjectSettingsStore.DefaultPath), new LoreRepositoryService())
@@ -37,16 +43,20 @@ public partial class WorkspaceWindow : Window
     public WorkspaceWindow(ServerProfile server, ProjectSettingsStore store, IRepositoryService repositoryService,
         Func<string, string, bool>? confirm = null, ILatestService? latestService = null,
         IProjectRepositoryInfo? repositoryInfo = null,
-        Func<string, string?>? selectProjectName = null, Func<string, bool>? authenticate = null)
+        Func<string, string?>? selectProjectName = null, Func<string, bool>? authenticate = null,
+        IBranchService? branchService = null, IRevisionHistoryService? historyService = null)
     {
         this.server = server;
         this.store = store;
         this.repositoryService = repositoryService;
         this.latestService = latestService ?? new LoreLatestService();
         this.repositoryInfo = repositoryInfo ?? new ProjectRepositoryInfo();
+        this.branchService = branchService ?? new LoreBranchService();
+        this.historyService = historyService ?? new LoreRevisionHistoryService();
         this.confirm = confirm ?? ((message, title) =>
             MessageBox.Show(this, message, title, MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes);
         InitializeComponent();
+        WorkspaceTabs.SelectionChanged += WorkspaceTabs_SelectionChanged;
         this.selectProjectName = selectProjectName ?? (name =>
         {
             var dialog = new RenameProjectWindow(name) { Owner = this };
@@ -93,6 +103,12 @@ public partial class WorkspaceWindow : Window
         RefreshTreeButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready } && !busy;
         GetLatestButton.IsEnabled = activeProject is not null && !busy;
         OpenFolderButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready } && !busy;
+        BranchList.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready } && !busy;
+        RefreshBranchesButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready } && !busy;
+        SwitchBranchButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
+            && BranchList.SelectedItem is BranchEntry { IsCurrent: false } && !busy;
+        RefreshHistoryButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
+            && !busy && !historyLoading;
     }
 
     private void ProjectList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -143,6 +159,8 @@ public partial class WorkspaceWindow : Window
             if (project.CloneState != ProjectCloneState.Ready)
             {
                 activeProject = project;
+                InvalidateHistory();
+                ClearBranches();
                 ActiveProjectText.Text = project.Name;
                 ServerText.Text = $"サーバー: {project.ServerUrl}";
                 Title = $"Chronicler - {project.Name}";
@@ -184,6 +202,8 @@ public partial class WorkspaceWindow : Window
                 ReloadProjects(project.Id);
             }
             activeProject = project;
+            InvalidateHistory();
+            ClearBranches();
             ServerText.Text = $"サーバー: {project.ServerUrl}";
             ActiveProjectText.Text = project.Name;
             Title = $"Chronicler - {project.Name}";
@@ -203,6 +223,7 @@ public partial class WorkspaceWindow : Window
         {
             busy = false;
             UpdateControls();
+            LoadHistoryIfVisible();
         }
     }
 
@@ -330,6 +351,7 @@ public partial class WorkspaceWindow : Window
                 store.Save(current);
                 started = true;
                 activeProject = inProgress;
+                InvalidateHistory();
                 ReloadProjects(inProgress.Id);
                 if (!exists) CloneDestination.Reserve(project.LocalPath);
                 CloneDestination.EnsureEmpty(project.LocalPath);
@@ -351,6 +373,7 @@ public partial class WorkspaceWindow : Window
                 current[index] = completed;
                 store.Save(current);
                 activeProject = completed;
+                InvalidateHistory();
                 ReloadProjects(completed.Id);
                 ShowProjectTree();
                 StatusText.Text = "初回取得が完了しました。";
@@ -371,8 +394,10 @@ public partial class WorkspaceWindow : Window
             {
                 busy = false;
                 UpdateControls();
+                LoadHistoryIfVisible();
             }
         }
+        InvalidateHistory();
         busy = true;
         UpdateControls();
         StatusText.Text = "サーバーとローカルの履歴を確認しています…";
@@ -389,6 +414,7 @@ public partial class WorkspaceWindow : Window
             var progress = new Progress<string>(message => { if (busy) StatusText.Text = message; });
             syncStarted = true;
             var status = await latestService.GetLatestAsync(project.LocalPath, progress);
+            ClearBranches();
             StatusText.Text = $"ブランチ「{status.Branch}」を、サーバーで確認したリビジョンに更新しました。";
         }
         catch (LatestSyncException ex)
@@ -413,6 +439,7 @@ public partial class WorkspaceWindow : Window
             ShowProjectTree();
             busy = false;
             UpdateControls();
+            LoadHistoryIfVisible();
         }
     }
 
@@ -477,6 +504,8 @@ public partial class WorkspaceWindow : Window
             if (activeProject?.Id == project.Id)
             {
                 activeProject = null;
+                InvalidateHistory();
+                ClearBranches();
                 ServerText.Text = "サーバー: 未選択";
                 ActiveProjectText.Text = "プロジェクトが選択されていません";
                 Title = "Chronicler";
@@ -518,6 +547,205 @@ public partial class WorkspaceWindow : Window
         }
     }
 
+    private void ClearBranches()
+    {
+        BranchList.ItemsSource = null;
+        CurrentBranchText.Text = "ブランチ: 未取得";
+    }
+
+    private void InvalidateHistory()
+    {
+        historyVersion++;
+        historyLoading = false;
+        historyNeedsRefresh = true;
+        RevisionHistoryList.ItemsSource = null;
+        HistoryStatus.Text = activeProject switch
+        {
+            null => "プロジェクトを選択してください。",
+            { CloneState: ProjectCloneState.Pending } => "初回取得後に履歴を表示できます。",
+            { CloneState: ProjectCloneState.Started } => "cloneが完了していないため、履歴を表示できません。",
+            _ => "履歴を取得していません。"
+        };
+    }
+
+    private void WorkspaceTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (e.Source == WorkspaceTabs) LoadHistoryIfVisible();
+    }
+
+    private void LoadHistoryIfVisible()
+    {
+        if (!closed && !busy && historyNeedsRefresh && !historyLoading
+            && WorkspaceTabs.SelectedItem == UpdateLogTab
+            && activeProject is { CloneState: ProjectCloneState.Ready } project)
+            _ = LoadHistoryAsync(project);
+    }
+
+    private void RefreshHistoryButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (busy || historyLoading || activeProject is not { CloneState: ProjectCloneState.Ready } project) return;
+        _ = LoadHistoryAsync(project);
+    }
+
+    private async Task LoadHistoryAsync(ProjectProfile project)
+    {
+        var version = ++historyVersion;
+        historyLoading = true;
+        historyNeedsRefresh = false;
+        RevisionHistoryList.ItemsSource = null;
+        HistoryStatus.Text = "リビジョン履歴を取得しています…（必要に応じてサーバーに接続します）";
+        UpdateControls();
+        bool IsCurrent() => !closed && version == historyVersion && activeProject?.Id == project.Id;
+        var operation = "ローカルリポジトリの確認";
+        try
+        {
+            ReadLoreAttributes(project.LocalPath);
+            var local = await repositoryInfo.ReadLocalAsync(project.LocalPath);
+            if (!IsCurrent()) return;
+            ProjectRepositoryInfo.Validate(local, project.ServerUrl, project.RepositoryId);
+            operation = "リビジョン履歴の取得";
+            var entries = await historyService.ReadAsync(project.LocalPath);
+            if (!IsCurrent()) return;
+            RevisionHistoryList.ItemsSource = entries;
+            HistoryStatus.Text = entries.Count == 0
+                ? "ローカルのリビジョン履歴はありません。"
+                : $"{entries.Count}件を表示しています（最大100件）。";
+        }
+        catch (LoreError ex)
+        {
+            if (IsCurrent()) HistoryStatus.Text = $"{operation}に失敗しました（Loreエラー {ex.ReturnCode}）。\n{ex.Message}";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+            or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+        {
+            if (IsCurrent()) HistoryStatus.Text = $"履歴を取得できません: {ex.Message}";
+        }
+        finally
+        {
+            if (IsCurrent())
+            {
+                historyLoading = false;
+                UpdateControls();
+            }
+        }
+    }
+
+    private void BranchList_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateControls();
+
+    private async Task<BranchListResult> ReadBranchesAsync(ProjectProfile project)
+    {
+        ReadLoreAttributes(project.LocalPath);
+        var local = await repositoryInfo.ReadLocalAsync(project.LocalPath);
+        ProjectRepositoryInfo.Validate(local, project.ServerUrl, project.RepositoryId);
+        return await branchService.ListAsync(project.LocalPath);
+    }
+
+    private void DisplayBranches(BranchListResult result)
+    {
+        BranchList.ItemsSource = result.Branches;
+        var current = result.Branches.Where(branch => branch.IsCurrent).ToArray();
+        CurrentBranchText.Text = current.Length == 1
+            ? $"ブランチ: {current[0].Name}"
+            : "ブランチ: 確認できません";
+        BranchList.SelectedItem = current.Length == 1 ? current[0] : null;
+    }
+
+    private async void RefreshBranchesButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (busy || activeProject is not { CloneState: ProjectCloneState.Ready } project) return;
+        busy = true;
+        ClearBranches();
+        UpdateControls();
+        StatusText.Text = "ブランチ一覧を取得しています…";
+        try
+        {
+            var result = await ReadBranchesAsync(project);
+            DisplayBranches(result);
+            StatusText.Text = result.RemoteAvailable
+                ? "ブランチ一覧を取得しました。"
+                : "ローカルのブランチを表示しています。サーバーの一覧は取得できませんでした。接続、ログイン状態、アクセス権を確認してください。";
+        }
+        catch (LoreError ex)
+        {
+            StatusText.Text = $"ブランチ一覧を取得できません（Loreエラー {ex.ReturnCode}）。";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+            or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+        {
+            StatusText.Text = $"ブランチ一覧を取得できません: {ex.Message}";
+        }
+        finally
+        {
+            busy = false;
+            UpdateControls();
+        }
+    }
+
+    private async void SwitchBranchButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (busy || activeProject is not { CloneState: ProjectCloneState.Ready } project
+            || BranchList.SelectedItem is not BranchEntry { IsCurrent: false } branch) return;
+        var source = branch.IsLocal ? "ローカルのリビジョン" : "サーバーのリビジョン";
+        if (!confirm($"プロジェクト: {project.Name}\n切り替え先: {branch.Name}（{source}）\n\n作業ファイルが追加・変更・削除される場合があります。未コミットの変更はLoreが保持できない場合、切り替えに失敗します。\n\n切り替えますか？", "ブランチ切り替え"))
+            return;
+        InvalidateHistory();
+        busy = true;
+        UpdateControls();
+        var attempted = false;
+        string message;
+        try
+        {
+            ReadLoreAttributes(project.LocalPath);
+            var local = await repositoryInfo.ReadLocalAsync(project.LocalPath);
+            ProjectRepositoryInfo.Validate(local, project.ServerUrl, project.RepositoryId);
+            if (!branch.IsLocal)
+            {
+                var remote = await repositoryInfo.ReadRemoteAsync(project.LocalPath);
+                ProjectRepositoryInfo.ValidateRemote(local, remote);
+                ProjectRepositoryInfo.Validate(await repositoryInfo.ReadLocalAsync(project.LocalPath), project.ServerUrl, project.RepositoryId);
+            }
+            StatusText.Text = "ブランチを切り替えています…";
+            attempted = true;
+            await branchService.SwitchAsync(project.LocalPath, branch);
+            message = $"ブランチ「{branch.Name}」に切り替えました。";
+        }
+        catch (LoreError ex)
+        {
+            message = $"ブランチ切り替えに失敗しました（Loreエラー {ex.ReturnCode}）。ファイルが一部変更された可能性があります。ローカルの変更や接続を確認してください。";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+            or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+        {
+            message = attempted
+                ? $"ブランチを切り替えられません。ファイルが一部変更された可能性があります: {ex.Message}"
+                : $"ブランチを切り替えられません: {ex.Message}";
+        }
+        if (attempted)
+        {
+            ShowProjectTree();
+            ClearBranches();
+            try
+            {
+                var result = await ReadBranchesAsync(project);
+                DisplayBranches(result);
+                if (!result.RemoteAvailable) message += " サーバーのブランチ一覧は取得できませんでした。";
+            }
+            catch (LoreError ex)
+            {
+                message += $" 切り替え後のブランチ状態を確認できません（Loreエラー {ex.ReturnCode}）。";
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+                or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+            {
+                message += $" 切り替え後のブランチ状態を確認できません: {ex.Message}";
+            }
+        }
+        StatusText.Text = message;
+        busy = false;
+        UpdateControls();
+        LoadHistoryIfVisible();
+    }
+
     private void OpenFolderButton_Click(object sender, RoutedEventArgs e)
     {
         if (activeProject is null)
@@ -551,6 +779,8 @@ public partial class WorkspaceWindow : Window
 
     private void Window_Closed(object? sender, EventArgs e)
     {
+        closed = true;
+        historyVersion++;
         treeCancellation.Cancel();
         treeCancellation.Dispose();
     }

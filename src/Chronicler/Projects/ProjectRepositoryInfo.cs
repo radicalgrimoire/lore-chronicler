@@ -11,13 +11,14 @@ public sealed record RemoteRepositoryInfo(string RemoteUrl, string RepositoryId,
 
 public interface IProjectRepositoryInfo
 {
+    Task<string> ReadServerUrlAsync(string path);
     Task<LocalRepositoryInfo> ReadLocalAsync(string path);
     Task<RemoteRepositoryInfo> ReadRemoteAsync(string path);
 }
 
 public sealed class ProjectRepositoryInfo : IProjectRepositoryInfo
 {
-    public async Task<LocalRepositoryInfo> ReadLocalAsync(string path)
+    public async Task<string> ReadServerUrlAsync(string path)
     {
         var attributes = File.GetAttributes(Path.Combine(path, ".lore"));
         if ((attributes & FileAttributes.Directory) == 0)
@@ -25,7 +26,6 @@ public sealed class ProjectRepositoryInfo : IProjectRepositoryInfo
             throw new InvalidOperationException("選択したフォルダーにLoreリポジトリがありません。");
         }
         string? remote = null;
-        string? id = null;
         using var globals = new LoreGlobalArgs { RepositoryPath = path, Offline = true };
         using var config = new LoreRepositoryConfigGetArgs { Key = "remote_url" };
         await Lore.RepositoryConfigGet(globals, config).Callback((ev, _) =>
@@ -35,6 +35,18 @@ public sealed class ProjectRepositoryInfo : IProjectRepositoryInfo
                 remote = ev.GetData<LoreRepositoryConfigGetEventDataFFI>().Value;
             }
         }).WaitAsync();
+        if (string.IsNullOrWhiteSpace(remote))
+        {
+            throw new InvalidOperationException("Loreの接続先を確認できません。");
+        }
+        return remote;
+    }
+
+    public async Task<LocalRepositoryInfo> ReadLocalAsync(string path)
+    {
+        var remote = await ReadServerUrlAsync(path);
+        string? id = null;
+        using var globals = new LoreGlobalArgs { RepositoryPath = path, Offline = true };
         using var status = new LoreRepositoryStatusArgs { RevisionOnly = true };
         await Lore.RepositoryStatus(globals, status).Callback((ev, _) =>
         {
@@ -43,7 +55,7 @@ public sealed class ProjectRepositoryInfo : IProjectRepositoryInfo
                 id = Convert.ToHexString(ev.GetData<LoreRepositoryStatusRevisionEventDataFFI>().Repository.Data);
             }
         }).WaitAsync();
-        if (string.IsNullOrWhiteSpace(remote) || string.IsNullOrEmpty(id) || id.All(c => c == '0'))
+        if (string.IsNullOrEmpty(id) || id.All(c => c == '0'))
         {
             throw new InvalidOperationException("Loreの接続先またはリポジトリIDを確認できません。");
         }
