@@ -17,6 +17,9 @@ public sealed class LoreStageService : IStageService
     public Task StageAsync(string root, string path) => Task.Run(async () =>
     {
         ValidatePaths(root, [path]);
+        if ((File.Exists(path) || Directory.Exists(path))
+            && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+            throw new InvalidDataException("リンクを直接ステージすることはできません。");
         using var globals = new LoreGlobalArgs { RepositoryPath = root, Offline = true };
         using var args = new LoreFileStageArgs { Paths = [path], Scan = true };
         string? error = null;

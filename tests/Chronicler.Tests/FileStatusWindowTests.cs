@@ -45,28 +45,30 @@ public sealed class FileStatusWindowTests : IDisposable
             var tracked = WaitForChild(root, "tracked.txt");
             var folder = WaitForChild(root, "folder");
             var clean = WaitForChild(root, "clean.txt");
-            WaitForStatus(tracked, true);
             AssertHighlight(root, false);
-            AssertHighlight(tracked, true);
-            AssertHighlight(folder, true);
+            AssertHighlight(tracked, false);
+            AssertHighlight(folder, false);
             AssertHighlight(clean, false);
             folder.IsExpanded = true;
             var added = WaitForChild(folder, "new.txt");
-            AssertHighlight(added, true);
+            AssertHighlight(added, false);
             tracked.IsSelected = true;
             PumpDispatcher();
-            AssertHighlight(tracked, true);
-            Assert.Contains("前回の確認時点", Control<TextBox>(window, "FileStatusText").Text);
+            AssertHighlight(tracked, false);
+            var changes = Control<ListBox>(window, "ChangeList");
+            Assert.Contains(changes.Items.OfType<StagedEntry>(), entry => entry.RelativePath == "tracked.txt" && entry.Action == ChangeAction.Modified);
+            Assert.Contains(changes.Items.OfType<StagedEntry>(), entry => entry.RelativePath == "folder\\new.txt" && entry.Action == ChangeAction.Added);
+            Assert.Contains("前回の確認時点", Control<TextBox>(window, "StageStatusText").Text);
 
             changed = false;
             Click(window, "RefreshTreeButton");
             root = Assert.IsType<TreeViewItem>(Control<TreeView>(window, "FileTree").Items[0]);
             tracked = WaitForChild(root, "tracked.txt");
             folder = WaitForChild(root, "folder");
-            WaitForStatus(tracked, false);
             AssertHighlight(root, false);
             AssertHighlight(tracked, false);
             AssertHighlight(folder, false);
+            Assert.Empty(changes.Items);
             Assert.Equal(2, service.Paths.Count);
             window.Close();
         });
@@ -91,7 +93,7 @@ public sealed class FileStatusWindowTests : IDisposable
             var window = CreateWindow(service, first, second);
             window.Show();
             SelectProject(window, 0);
-            Assert.Contains("確認しています", Control<TextBox>(window, "FileStatusText").Text);
+            Assert.Contains("確認しています", Control<TextBox>(window, "StageStatusText").Text);
             Assert.False(Control<Button>(window, "GetLatestButton").IsEnabled);
             Assert.True(Control<Button>(window, "SwitchProjectButton").IsEnabled);
             SelectProject(window, 1);
@@ -102,8 +104,8 @@ public sealed class FileStatusWindowTests : IDisposable
             Assert.Equal([first.LocalPath, second.LocalPath], service.Paths);
             var root = Assert.IsType<TreeViewItem>(Control<TreeView>(window, "FileTree").Items[0]);
             var item = WaitForChild(root, "file.txt");
-            WaitForStatus(item, true);
-            AssertHighlight(item, true);
+            AssertHighlight(item, false);
+            Assert.Equal("file.txt", Assert.Single(Control<ListBox>(window, "ChangeList").Items.OfType<StagedEntry>()).RelativePath);
             Assert.True(Control<Button>(window, "GetLatestButton").IsEnabled);
             window.Close();
         });
@@ -123,7 +125,7 @@ public sealed class FileStatusWindowTests : IDisposable
             var window = CreateWindow(service, project);
             window.Show();
             SelectProject(window, 0);
-            Assert.Contains("scan failed", Control<TextBox>(window, "FileStatusText").Text);
+            Assert.Contains("scan failed", Control<TextBox>(window, "StageStatusText").Text);
             var root = Assert.IsType<TreeViewItem>(Control<TreeView>(window, "FileTree").Items[0]);
             WaitForChild(root, "file.txt");
             service.Scan = path => Task.FromResult(new FileStatusSnapshot(path,
@@ -131,9 +133,9 @@ public sealed class FileStatusWindowTests : IDisposable
             Click(window, "RefreshTreeButton");
             root = Assert.IsType<TreeViewItem>(Control<TreeView>(window, "FileTree").Items[0]);
             var item = WaitForChild(root, "file.txt");
-            WaitForStatus(item, true);
-            AssertHighlight(item, true);
-            Assert.Contains("前回の確認時点", Control<TextBox>(window, "FileStatusText").Text);
+            AssertHighlight(item, false);
+            Assert.Equal("file.txt", Assert.Single(Control<ListBox>(window, "ChangeList").Items.OfType<StagedEntry>()).RelativePath);
+            Assert.Contains("前回の確認時点", Control<TextBox>(window, "StageStatusText").Text);
             window.Close();
         });
     }
@@ -166,10 +168,18 @@ public sealed class FileStatusWindowTests : IDisposable
             var root = Assert.IsType<TreeViewItem>(Control<TreeView>(window, "FileTree").Items[0]);
             var tracked = WaitForChild(root, "tracked.txt");
             var added = WaitForChild(root, "new.txt");
-            WaitForStatus(tracked, true);
-            AssertHighlight(tracked, true);
-            AssertHighlight(added, true);
-            Assert.Contains("前回の確認時点", Control<TextBox>(window, "FileStatusText").Text);
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (Control<ListBox>(window, "ChangeList").Items.Count < 2 && DateTime.UtcNow < deadline)
+            {
+                PumpDispatcher();
+                Thread.Sleep(10);
+            }
+            AssertHighlight(tracked, false);
+            AssertHighlight(added, false);
+            var changes = Control<ListBox>(window, "ChangeList").Items.OfType<StagedEntry>().ToArray();
+            Assert.Contains(changes, entry => entry.RelativePath == "tracked.txt" && entry.Action == ChangeAction.Modified);
+            Assert.Contains(changes, entry => entry.RelativePath == "new.txt" && entry.Action == ChangeAction.Added);
+            Assert.Contains("前回の確認時点", Control<TextBox>(window, "StageStatusText").Text);
             window.Close();
         });
     }
@@ -208,18 +218,6 @@ public sealed class FileStatusWindowTests : IDisposable
             Thread.Sleep(10);
         }
         throw new TimeoutException($"Tree item not found: {header}");
-    }
-
-    private static void WaitForStatus(TreeViewItem item, bool changed)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (DateTime.UtcNow < deadline)
-        {
-            PumpDispatcher();
-            if ((AutomationProperties.GetItemStatus(item) == "変更あり") == changed) return;
-            Thread.Sleep(10);
-        }
-        throw new TimeoutException($"Tree status did not update: {item.Header}");
     }
 
     private static void AssertHighlight(TreeViewItem item, bool expected)

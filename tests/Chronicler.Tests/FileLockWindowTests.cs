@@ -16,7 +16,7 @@ public sealed class FileLockWindowTests : IDisposable
     private readonly FakeProjectRepositoryInfo repositoryInfo = new();
 
     [Fact]
-    public void LockedFilesShowOwnersAndHighlightAndRefreshClearsLock()
+    public void LockedFilesShowOwnersWithoutChangeHighlightAndRefreshClearsLock()
     {
         RunSta(() =>
         {
@@ -43,7 +43,7 @@ public sealed class FileLockWindowTests : IDisposable
             folder.IsExpanded = true;
             var file = WaitForChild(folder, "asset.txt");
             Assert.Empty(AutomationProperties.GetHelpText(folder));
-            Assert.Equal("変更あり", AutomationProperties.GetItemStatus(file));
+            Assert.NotEqual("変更あり", AutomationProperties.GetItemStatus(file));
             var icon = FindText(file, "🔒");
             Assert.NotNull(icon);
             Assert.Equal(Visibility.Visible, icon.Visibility);
@@ -54,7 +54,7 @@ public sealed class FileLockWindowTests : IDisposable
             PumpDispatcher();
             Assert.Equal(Visibility.Visible, icon.Visibility);
             var header = Assert.IsType<TextBlock>(FindText(file, "asset.txt"));
-            Assert.Equal(Color.FromRgb(255, 242, 179), Assert.IsType<SolidColorBrush>(header.Background).Color);
+            Assert.True(header.Background is null || header.Background is SolidColorBrush { Color: var color } && color == Colors.Transparent);
 
             locked = false;
             Click(window, "RefreshTreeButton");
@@ -65,7 +65,7 @@ public sealed class FileLockWindowTests : IDisposable
             icon = FindText(file, "🔒");
             Assert.NotNull(icon);
             Assert.Equal(Visibility.Collapsed, icon.Visibility);
-            Assert.Equal("変更あり", AutomationProperties.GetItemStatus(file));
+            Assert.NotEqual("変更あり", AutomationProperties.GetItemStatus(file));
             Assert.Equal([project.LocalPath, project.LocalPath], service.Paths);
             window.Close();
         });

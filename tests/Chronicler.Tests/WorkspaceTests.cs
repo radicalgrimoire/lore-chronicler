@@ -58,7 +58,7 @@ public sealed class WorkspaceTests : IDisposable
             Assert.Equal(3, tabs.Items.Count);
             Assert.Same(projects, tabs.SelectedItem);
             Assert.Equal("プロジェクト", projects.Header);
-            Assert.Equal("ステージ", stage.Header);
+            Assert.Equal("変更", stage.Header);
             Assert.Equal("更新ログ", log.Header);
             list.SelectedIndex = 0;
             Click(window, "SwitchProjectButton");

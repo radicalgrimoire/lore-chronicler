@@ -17,6 +17,48 @@ public sealed class CommitWindowTests : IDisposable
     private readonly FakeProjectRepositoryInfo repositoryInfo = new();
 
     [Fact]
+    public void FilteredViewShowsAndConfirmsHiddenCommitTargets()
+    {
+        RunSta(() =>
+        {
+            var project = CreateProject("first");
+            var commits = new FakeCommitService();
+            var status = new FakeFileStatusService
+            {
+                Scan = path => Task.FromResult(new FileStatusSnapshot(path,
+                    new Dictionary<string, FileChangeKind>
+                    {
+                        ["staged.txt"] = FileChangeKind.Staged,
+                        ["working.txt"] = FileChangeKind.Untracked
+                    }))
+            };
+            string? confirmation = null;
+            var approved = false;
+            var window = CreateWindowWithConfirmation(commits, status, new FakeHistoryService(),
+                (message, _) => { confirmation = message; return approved; }, project);
+            window.Show();
+            SelectProject(window, 0);
+            SelectTab(window, "StageTab");
+            Control<ComboBox>(window, "ChangeFilter").SelectedIndex = 1;
+            var list = Control<ListBox>(window, "ChangeList");
+            Assert.DoesNotContain(list.Items.OfType<StagedEntry>(), entry => entry.IsStaged);
+            Assert.Contains("ステージ済み 1件", Control<TextBlock>(window, "CommitTargetText").Text);
+            Control<TextBox>(window, "CommitMessageText").Text = "draft";
+            Assert.True(Control<Button>(window, "CommitButton").IsEnabled);
+            Click(window, "CommitButton");
+            Assert.Empty(commits.Calls);
+            Assert.Equal("draft", Control<TextBox>(window, "CommitMessageText").Text);
+            Assert.Contains("staged.txt", confirmation);
+            Assert.Contains("1件", confirmation);
+            Assert.DoesNotContain("working.txt", confirmation);
+            approved = true;
+            Click(window, "CommitButton");
+            Assert.Single(commits.Calls);
+            window.Close();
+        });
+    }
+
+    [Fact]
     public void CommitUsesAllStagedEntriesRefreshesStatusAndInvalidatesHistory()
     {
         RunSta(() =>
@@ -36,8 +78,8 @@ public sealed class CommitWindowTests : IDisposable
             SelectTab(window, "UpdateLogTab");
             Assert.Equal("old", Assert.IsType<RevisionHistoryEntry>(Control<ListBox>(window, "RevisionHistoryList").Items[0]).Message);
             SelectTab(window, "StageTab");
-            var list = Control<ListBox>(window, "StageList");
-            list.SelectedIndex = 0;
+            var list = Control<ListBox>(window, "ChangeList");
+            list.SelectedItem = list.Items.OfType<StagedEntry>().First();
             var button = Control<Button>(window, "CommitButton");
             Assert.False(button.IsEnabled);
             Control<TextBox>(window, "CommitMessageText").Text = "  \n";
@@ -81,7 +123,7 @@ public sealed class CommitWindowTests : IDisposable
             Click(window, "CommitButton");
             Assert.Empty(commits.Calls);
             Assert.Equal("draft", message.Text);
-            Assert.Equal("b.txt", Assert.IsType<StagedEntry>(Control<ListBox>(window, "StageList").Items[0]).RelativePath);
+            Assert.Equal("b.txt", Assert.Single(Control<ListBox>(window, "ChangeList").Items.OfType<StagedEntry>()).RelativePath);
             Assert.Equal(conflict, Control<TextBox>(window, "StageStatusText").Text.Contains("競合"));
             Assert.Contains("中止", Control<TextBlock>(window, "StatusText").Text);
             Assert.Equal(!conflict, Control<Button>(window, "CommitButton").IsEnabled);
@@ -115,7 +157,7 @@ public sealed class CommitWindowTests : IDisposable
             Assert.Contains("commit failure", Control<TextBlock>(window, "StatusText").Text);
             Assert.Contains("再試行前", Control<TextBlock>(window, "StatusText").Text);
             Assert.Equal(3, status.Paths.Count);
-            Assert.Single(Control<ListBox>(window, "StageList").Items);
+            Assert.Single(Control<ListBox>(window, "ChangeList").Items.OfType<StagedEntry>());
             window.Close();
         });
     }
@@ -138,7 +180,7 @@ public sealed class CommitWindowTests : IDisposable
             Click(window, "CommitButton");
             Assert.Empty(commits.Calls);
             Assert.Equal("draft", Control<TextBox>(window, "CommitMessageText").Text);
-            Assert.Empty(Control<ListBox>(window, "StageList").Items);
+            Assert.Empty(Control<ListBox>(window, "ChangeList").Items);
             Assert.Contains("scan failed", Control<TextBox>(window, "StageStatusText").Text);
             Assert.Contains("コミット前の確認に失敗", Control<TextBlock>(window, "StatusText").Text);
             Assert.False(Control<Button>(window, "CommitButton").IsEnabled);
@@ -184,7 +226,7 @@ public sealed class CommitWindowTests : IDisposable
             window.Show();
             SelectProject(window, 0);
             SelectTab(window, "StageTab");
-            var list = Control<ListBox>(window, "StageList");
+            var list = Control<ListBox>(window, "ChangeList");
             var message = Control<TextBox>(window, "CommitMessageText");
             var button = Control<Button>(window, "CommitButton");
             window.UpdateLayout();
@@ -197,7 +239,7 @@ public sealed class CommitWindowTests : IDisposable
             list.ScrollIntoView(list.Items[1999]);
             window.UpdateLayout();
             PumpDispatcher();
-            Assert.NotNull(list.ItemContainerGenerator.ContainerFromIndex(1999));
+            Assert.True(scroll.VerticalOffset > 0);
             Assert.Equal(before, button.TransformToAncestor(window).Transform(new Point(0, 0)));
             Assert.True(message.IsVisible);
             Assert.True(button.IsVisible);
@@ -250,11 +292,15 @@ public sealed class CommitWindowTests : IDisposable
 
     private WorkspaceWindow CreateWindow(ICommitService commit, IFileStatusService status, IRevisionHistoryService history,
         params ProjectProfile[] projects)
+        => CreateWindowWithConfirmation(commit, status, history, (_, _) => true, projects);
+
+    private WorkspaceWindow CreateWindowWithConfirmation(ICommitService commit, IFileStatusService status,
+        IRevisionHistoryService history, Func<string, string, bool> confirm, params ProjectProfile[] projects)
     {
         var store = new ProjectSettingsStore(Path.Combine(directory, "projects.json"));
         store.Load();
         store.Save(projects);
-        return new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
+        return new WorkspaceWindow(server, store, new UnusedRepositoryService(), confirm,
             repositoryInfo: repositoryInfo, fileStatusService: status, fileLockService: new FakeFileLockService(),
             historyService: history, commitService: commit);
     }

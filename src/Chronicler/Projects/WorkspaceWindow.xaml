@@ -1,8 +1,38 @@
 <Window x:Class="Chronicler.Projects.WorkspaceWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:projects="clr-namespace:Chronicler.Projects"
         Title="Chronicler" Width="1100" Height="700" MinWidth="780" MinHeight="480"
         WindowStartupLocation="CenterOwner" Closing="Window_Closing" Closed="Window_Closed">
+    <Window.Resources>
+        <DataTemplate DataType="{x:Type projects:StagedEntry}">
+            <Border Background="{Binding Background}" Padding="4,2" Margin="0,1"
+                    BorderBrush="{Binding StateColor}"
+                    BorderThickness="3,0,0,0">
+                <DockPanel Margin="{Binding Indent}" ToolTip="{Binding RelativePath}">
+                    <Button Width="22" Padding="0" Margin="0,0,2,0" Click="ChangeFolder_Click"
+                            Content="{Binding ExpandMarker}"
+                            AutomationProperties.Name="{Binding ExpandAccessibleName}">
+                        <Button.Style>
+                            <Style TargetType="{x:Type Button}">
+                                <Setter Property="Visibility" Value="Hidden" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasChildren}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <TextBlock Text="{Binding StateMarker}" Width="30" FontWeight="Bold"
+                               ToolTip="{Binding StateText}" />
+                    <TextBlock Text="{Binding Icon}" Width="24" FontWeight="Bold" ToolTip="{Binding ActionText}" />
+                    <TextBlock Text="{Binding DirectoryActionIcon}" FontWeight="Bold" ToolTip="{Binding ActionText}" />
+                    <TextBlock Text="{Binding TreeName}" TextWrapping="Wrap" />
+                </DockPanel>
+            </Border>
+        </DataTemplate>
+    </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -45,15 +75,9 @@
                 <DockPanel Margin="0,0,0,8">
                     <Button x:Name="OpenFolderButton" Content="フォルダーを開く" DockPanel.Dock="Right"
                             Padding="10,4" Click="OpenFolderButton_Click" />
-                    <Button x:Name="StageButton" Content="ステージ" DockPanel.Dock="Right"
-                            Margin="0,0,8,0" Padding="10,4" Click="StageButton_Click"
-                            ToolTip="選択したファイルまたはフォルダー内の変更をステージします。" />
                     <StackPanel>
                         <TextBlock Text="ローカルファイル" FontWeight="SemiBold" />
                         <TextBlock x:Name="ActiveProjectText" Text="プロジェクトが選択されていません" Margin="0,4,0,0" />
-                        <TextBox x:Name="FileStatusText" Text="変更状態は未取得です。" Margin="0,4,0,0"
-                                 IsReadOnly="True" BorderThickness="0" Background="Transparent" Padding="0"
-                                 TextWrapping="Wrap" MaxHeight="90" VerticalScrollBarVisibility="Auto" />
                         <TextBox x:Name="LockStatusText" Text="ロック状態は未取得です。" Margin="0,4,0,0"
                                  IsReadOnly="True" BorderThickness="0" Background="Transparent" Padding="0"
                                  TextWrapping="Wrap" MaxHeight="90" VerticalScrollBarVisibility="Auto" />
@@ -69,7 +93,6 @@
                     </StackPanel>
                 </DockPanel>
                 <TreeView x:Name="FileTree" Grid.Row="1" AutomationProperties.Name="ローカルファイル"
-                          SelectedItemChanged="FileTree_SelectedItemChanged"
                           VirtualizingStackPanel.IsVirtualizing="True"
                           VirtualizingStackPanel.VirtualizationMode="Recycling"
                           ScrollViewer.CanContentScroll="True">
@@ -99,14 +122,6 @@
                                                 </TextBlock.Style>
                                             </TextBlock>
                                         </StackPanel>
-                                        <DataTemplate.Triggers>
-                                            <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType={x:Type TreeViewItem}}, Path=(AutomationProperties.ItemStatus)}"
-                                                         Value="変更あり">
-                                                <Setter TargetName="HeaderText" Property="Background" Value="#FFF2B3" />
-                                                <Setter TargetName="HeaderText" Property="Foreground" Value="#302400" />
-                                                <Setter TargetName="HeaderText" Property="FontWeight" Value="SemiBold" />
-                                            </DataTrigger>
-                                        </DataTemplate.Triggers>
                                     </DataTemplate>
                                 </Setter.Value>
                             </Setter>
@@ -143,32 +158,49 @@
                         </StackPanel>
                     </Grid>
                 </TabItem>
-                <TabItem x:Name="StageTab" Header="ステージ">
+                <TabItem x:Name="StageTab" Header="変更">
                     <Grid Margin="8">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
-                        <DockPanel>
-                            <Button x:Name="UnstageButton" DockPanel.Dock="Right" Content="アンステージ"
-                                    Padding="10,4" Click="UnstageButton_Click"
-                                    ToolTip="選択したファイルをステージから外します。作業ファイルは変更しません。" />
-                            <TextBlock Text="ステージ済みの変更" VerticalAlignment="Center" />
-                        </DockPanel>
-                        <TextBox x:Name="StageStatusText" Grid.Row="1" Margin="0,8,0,8"
+                        <TextBox x:Name="StageStatusText" Grid.Row="0" Margin="0,0,0,8"
                                  Text="プロジェクトを選択してください。" TextWrapping="Wrap"
                                  IsReadOnly="True" BorderThickness="0" Background="Transparent"
-                                 Padding="0" MaxHeight="160" VerticalScrollBarVisibility="Auto" />
-                        <ListBox x:Name="StageList" Grid.Row="2" SelectionMode="Extended"
-                                 AutomationProperties.Name="ステージ済みファイル"
-                                 DisplayMemberPath="DisplayName"
+                                 Padding="0" MaxHeight="100" VerticalScrollBarVisibility="Auto" />
+                        <ComboBox x:Name="ChangeFilter" Grid.Row="1" Margin="0,0,0,6"
+                                  SelectedIndex="0" SelectionChanged="ChangeFilter_SelectionChanged"
+                                  AutomationProperties.Name="変更一覧の表示">
+                            <ComboBoxItem Content="変更一覧" />
+                            <ComboBoxItem Content="未ステージ一覧" />
+                            <ComboBoxItem Content="ステージ済み一覧" />
+                        </ComboBox>
+                        <ListBox x:Name="ChangeList" Grid.Row="2" SelectionMode="Extended"
+                                 AutomationProperties.Name="変更ツリー"
+                                 HorizontalContentAlignment="Stretch"
                                  SelectionChanged="StageList_SelectionChanged"
                                  VirtualizingStackPanel.IsVirtualizing="True"
                                  VirtualizingStackPanel.VirtualizationMode="Recycling"
-                                 ScrollViewer.CanContentScroll="True" />
-                        <StackPanel Grid.Row="3" Margin="0,10,0,0">
+                                 ScrollViewer.CanContentScroll="True">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="{x:Type ListBoxItem}">
+                                    <Setter Property="AutomationProperties.Name" Value="{Binding AccessibleName}" />
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                        </ListBox>
+                        <WrapPanel Grid.Row="3" Margin="0,8,0,0">
+                            <Button x:Name="StageSelectionButton" Content="ステージ" Margin="0,0,8,0"
+                                    Padding="10,4" Click="StageSelectionButton_Click"
+                                    ToolTip="選択した未ステージの変更をステージします。フォルダーは配下も対象です。" />
+                            <Button x:Name="UnstageButton" Content="アンステージ"
+                                    Padding="10,4" Click="UnstageButton_Click"
+                                    ToolTip="選択したステージ済みの変更を外します。フォルダーは配下も対象です。" />
+                        </WrapPanel>
+                        <StackPanel Grid.Row="4" Margin="0,10,0,0">
+                            <TextBlock x:Name="CommitTargetText" Text="コミット対象：未確認" FontWeight="SemiBold" />
                             <TextBlock Text="コミットメッセージ" FontWeight="SemiBold" />
                             <TextBox x:Name="CommitMessageText" Margin="0,4,0,0" Height="68"
                                      AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"

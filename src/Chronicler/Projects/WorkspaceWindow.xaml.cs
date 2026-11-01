@@ -33,6 +33,7 @@ public partial class WorkspaceWindow : Window
     private readonly Func<string, bool> authenticate;
     private readonly ObservableCollection<ProjectProfile> projects = [];
     private readonly Dictionary<Guid, string> commitDrafts = [];
+    private readonly HashSet<string> collapsedChangeFolders = new(StringComparer.OrdinalIgnoreCase);
     private ProjectProfile? activeProject;
     private CancellationTokenSource treeCancellation = new();
     private bool available;
@@ -131,15 +132,16 @@ public partial class WorkspaceWindow : Window
             && BranchList.SelectedItem is BranchEntry { IsCurrent: false } && !busy && !fileStatusRunning;
         RefreshHistoryButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
             && !busy && !historyLoading;
-        StageButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
+        StageSelectionButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
             && !busy && !fileStatusRunning && fileStatus is not null
-            && FileTree.SelectedItem is TreeViewItem { Tag: TreeItemInfo { IsReparsePoint: false } };
+            && ChangeList.SelectedItems.OfType<StagedEntry>().Any(entry => entry.IsUnstaged);
         UnstageButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
-            && !busy && !fileStatusRunning && fileStatus is not null && StageList.SelectedItems.Count > 0;
+            && !busy && !fileStatusRunning && fileStatus is not null
+            && ChangeList.SelectedItems.OfType<StagedEntry>().Any(entry => entry.IsStaged);
         CommitMessageText.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready } && !busy;
         CommitButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
             && !busy && !fileStatusRunning && fileStatus is { UnresolvedConflictCount: 0 }
-            && StageList.Items.Count > 0 && !string.IsNullOrWhiteSpace(CommitMessageText.Text);
+            && fileStatus.StagedCount > 0 && !string.IsNullOrWhiteSpace(CommitMessageText.Text);
     }
 
     private void SetActiveProject(ProjectProfile? project)
@@ -147,7 +149,10 @@ public partial class WorkspaceWindow : Window
         var changed = activeProject?.Id != project?.Id;
         activeProject = project;
         if (changed)
+        {
+            collapsedChangeFolders.Clear();
             CommitMessageText.Text = project is null ? string.Empty : commitDrafts.GetValueOrDefault(project.Id, string.Empty);
+        }
     }
 
     private void CommitMessageText_TextChanged(object sender, TextChangedEventArgs e)
@@ -282,8 +287,8 @@ public partial class WorkspaceWindow : Window
         fileLocks = null;
         fileStatusNeedsRefresh = activeProject is { CloneState: ProjectCloneState.Ready };
         lockNeedsRefresh = fileStatusNeedsRefresh;
-        FileStatusText.Text = fileStatusNeedsRefresh ? "変更状態の確認を待っています…" : "変更状態は未取得です。";
-        StageList.ItemsSource = null;
+        ChangeList.ItemsSource = null;
+        CommitTargetText.Text = "コミット対象：未確認";
         StageStatusText.Text = fileStatusNeedsRefresh ? "ステージ状態の確認を待っています…"
             : activeProject is null ? "プロジェクトを選択してください。" : "初回取得後に表示できます。";
         LockStatusText.Text = lockNeedsRefresh ? "ロック状態の確認を待っています…" : "ロック状態は未取得です。";
@@ -341,7 +346,7 @@ public partial class WorkspaceWindow : Window
                 else
                 {
                     var suffix = entry.IsReparsePoint ? " (リンク)" : string.Empty;
-                    var child = new TreeViewItem { Tag = new TreeItemInfo(entry.Name + suffix, entry.Path, entry.IsDirectory, entry.IsReparsePoint) };
+                    var child = new TreeViewItem { Tag = new TreeItemInfo(entry.Name + suffix, entry.Path, entry.IsDirectory) };
                     UpdateTreeItem(child);
                     item.Items.Add(child);
                 }
@@ -369,20 +374,42 @@ public partial class WorkspaceWindow : Window
         }
     }
 
-    private sealed record TreeItemInfo(string Name, string Path, bool IsDirectory, bool IsReparsePoint = false);
-
-    private void FileTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e) => UpdateControls();
+    private sealed record TreeItemInfo(string Name, string Path, bool IsDirectory);
 
     private void StageList_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateControls();
+
+    private void ChangeFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsInitialized || fileStatus is null) return;
+        SetChangeList(fileStatus);
+        UpdateControls();
+    }
+
+    private void ChangeFolder_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: StagedEntry { HasChildren: true } folder } || fileStatus is null) return;
+        if (!collapsedChangeFolders.Add(folder.FullPath)) collapsedChangeFolders.Remove(folder.FullPath);
+        SetChangeList(fileStatus);
+        UpdateControls();
+    }
 
     private async void CommitButton_Click(object sender, RoutedEventArgs e)
     {
         if (busy || fileStatusRunning || fileStatus is not { UnresolvedConflictCount: 0 } previous
-            || StageList.Items.Count == 0 || string.IsNullOrWhiteSpace(CommitMessageText.Text)
+            || previous.StagedCount == 0 || string.IsNullOrWhiteSpace(CommitMessageText.Text)
             || activeProject is not { CloneState: ProjectCloneState.Ready } project) return;
 
         var message = CommitMessageText.Text;
         var expected = previous.StagedEntries;
+        var preview = string.Join("\n", expected.Take(20).Select(entry => $"{entry.ActionText}: {entry.DisplayName}"));
+        var remainder = expected.Count > 20
+            ? $"\nほか {expected.Count - 20}件（「ステージ済み一覧」で確認できます）" : string.Empty;
+        if (!confirm($"ステージ済みの変更 {expected.Count}件をローカルにコミットします。表示フィルターや選択は対象に影響しません。\n\n{preview}{remainder}\n\nステージ後に編集したファイルはコミット時の内容が使われます。",
+                "コミットの確認"))
+        {
+            StatusText.Text = "コミットをキャンセルしました。";
+            return;
+        }
         var scanCompleted = false;
         var attempted = false;
         busy = true;
@@ -396,7 +423,7 @@ public partial class WorkspaceWindow : Window
             ProjectRepositoryInfo.Validate(local, project.ServerUrl, project.RepositoryId);
             var latest = await fileStatusService.ScanAsync(project.LocalPath);
             scanCompleted = true;
-            ApplyFileStatus(project, latest);
+            ApplyFileStatus(latest);
             var actual = latest.StagedEntries;
             if (latest.UnresolvedConflictCount > 0 || actual.Count == 0 || !SameStagedEntries(expected, actual))
             {
@@ -439,24 +466,60 @@ public partial class WorkspaceWindow : Window
     private static bool SameStagedEntries(IReadOnlyList<StagedEntry> left, IReadOnlyList<StagedEntry> right) =>
         left.Count == right.Count && left.Zip(right).All(pair =>
             pair.First.IsDirectory == pair.Second.IsDirectory
+            && pair.First.Action == pair.Second.Action
             && string.Equals(pair.First.FullPath, pair.Second.FullPath, StringComparison.OrdinalIgnoreCase));
-
-    private async void StageButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (busy || fileStatusRunning || fileStatus is null
-            || activeProject is not { CloneState: ProjectCloneState.Ready } project
-            || FileTree.SelectedItem is not TreeViewItem { Tag: TreeItemInfo { IsReparsePoint: false } info }) return;
-        WorkspaceTabs.SelectedItem = StageTab;
-        await ChangeStageAsync(project, [info.Path], stage: true);
-    }
 
     private async void UnstageButton_Click(object sender, RoutedEventArgs e)
     {
         if (busy || fileStatusRunning || fileStatus is null
             || activeProject is not { CloneState: ProjectCloneState.Ready } project) return;
-        var paths = StageList.SelectedItems.OfType<StagedEntry>().Select(entry => entry.FullPath).ToArray();
+        var selected = ChangeList.SelectedItems.OfType<StagedEntry>().Where(entry => entry.IsStaged).ToArray();
+        var paths = SelectedChangePaths(selected);
         if (paths.Length == 0) return;
+        if (!ConfirmFolderOperation(selected, stage: false)) return;
         await ChangeStageAsync(project, paths, stage: false);
+    }
+
+    private async void StageSelectionButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (busy || fileStatusRunning || fileStatus is null
+            || activeProject is not { CloneState: ProjectCloneState.Ready } project) return;
+        var selected = ChangeList.SelectedItems.OfType<StagedEntry>().Where(entry => entry.IsUnstaged).ToArray();
+        var paths = SelectedChangePaths(selected);
+        if (paths.Length == 0) return;
+        if (!ConfirmFolderOperation(selected, stage: true)) return;
+        await ChangeStageAsync(project, paths, stage: true);
+    }
+
+    private bool ConfirmFolderOperation(IReadOnlyList<StagedEntry> selected, bool stage)
+    {
+        var folders = selected.Where(entry => entry.IsDirectory).ToArray();
+        if (folders.Length == 0) return true;
+        var paths = string.Join("\n", folders.Take(20).Select(entry => entry.RelativePath));
+        var remainder = folders.Length > 20 ? $"\nほか {folders.Length - 20}フォルダー" : string.Empty;
+        var operation = stage ? "ステージ" : "アンステージ";
+        var warning = stage
+            ? "フォルダー配下を再帰的に走査します。表示フィルターで見えないステージ済みの項目にも影響する可能性があります。"
+            : "表示フィルターや種類に関係なく、フォルダー配下のステージ済みの変更すべてが対象です。";
+        if (confirm($"{warning}\n\n{paths}{remainder}\n\n{operation}しますか？", $"{operation}の確認")) return true;
+        StatusText.Text = $"{operation}をキャンセルしました。";
+        return false;
+    }
+
+    private static string[] SelectedChangePaths(IReadOnlyList<StagedEntry> selected)
+    {
+        var folders = selected.Where(entry => entry.IsDirectory)
+            .Select(entry => entry.FullPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return selected.Where(entry =>
+        {
+            var parent = Path.GetDirectoryName(entry.FullPath);
+            while (parent is not null)
+            {
+                if (folders.Contains(parent)) return false;
+                parent = Path.GetDirectoryName(parent);
+            }
+            return true;
+        }).Select(entry => entry.FullPath).ToArray();
     }
 
     private async Task ChangeStageAsync(ProjectProfile project, string[] paths, bool stage)
@@ -473,7 +536,8 @@ public partial class WorkspaceWindow : Window
             var local = await repositoryInfo.ReadLocalAsync(project.LocalPath);
             ProjectRepositoryInfo.Validate(local, project.ServerUrl, project.RepositoryId);
             attempted = true;
-            if (stage) await stageService.StageAsync(project.LocalPath, paths[0]);
+            if (stage)
+                foreach (var path in paths) await stageService.StageAsync(project.LocalPath, path);
             else await stageService.UnstageAsync(project.LocalPath, paths);
             StatusText.Text = $"{operation}しました。状態を再確認します。";
         }
@@ -501,32 +565,71 @@ public partial class WorkspaceWindow : Window
         fileStatusVersion++;
         fileStatus = null;
         fileStatusNeedsRefresh = true;
-        StageList.ItemsSource = null;
+        ChangeList.ItemsSource = null;
+        CommitTargetText.Text = "コミット対象：未確認";
         StageStatusText.Text = "ステージ状態を再確認しています…";
-        FileStatusText.Text = "変更状態を再確認しています…";
-        foreach (var root in FileTree.Items.OfType<TreeViewItem>()) UpdateTreeItem(root);
     }
 
-    private void ApplyFileStatus(ProjectProfile project, FileStatusSnapshot result)
+    private void ApplyFileStatus(FileStatusSnapshot result)
     {
         fileStatus = result;
-        foreach (var root in FileTree.Items.OfType<TreeViewItem>()) UpdateTreeItem(root);
-        FileStatusText.Text = "変更状態を表示しています（前回の確認時点）。";
         var staged = result.StagedEntries;
-        StageList.ItemsSource = staged;
-        StageStatusText.Text = staged.Count == 0 ? "ステージ済みの変更はありません。" : $"{staged.Count}件（前回の確認時点）。フォルダーのアンステージは配下も対象です。";
+        var unstaged = result.UnstagedEntries;
+        SetChangeList(result);
+        CommitTargetText.Text = $"コミット対象：ステージ済み {staged.Count}件（前回の確認時点）";
+        StageStatusText.Text = staged.Count == 0 && unstaged.Count == 0
+            ? "変更はありません（前回の確認時点）。"
+            : $"未ステージ {unstaged.Count(entry => entry.Action != ChangeAction.Folder)}件、"
+                + (staged.Count == 0 ? "ステージ済みの変更はありません" : $"ステージ済み {staged.Count}件")
+                + "（前回の確認時点）。フォルダーの操作は配下も対象です。";
         if (result.UnresolvedConflictCount > 0)
             StageStatusText.Text += $" 未解決の競合が{result.UnresolvedConflictCount}件あり、一覧には含まれていません。";
+    }
+
+    private void SetChangeList(FileStatusSnapshot result)
+    {
+        var entries = result.AllDisplayEntries.Where(entry => ChangeFilter.SelectedIndex switch
+        {
+            1 => entry.IsUnstaged,
+            2 => entry.IsStaged,
+            _ => true
+        }).ToArray();
+        var byPath = entries.ToDictionary(entry => entry.FullPath, StringComparer.OrdinalIgnoreCase);
+        var children = new Dictionary<string, List<StagedEntry>>(StringComparer.OrdinalIgnoreCase);
+        var roots = new List<StagedEntry>();
+        foreach (var entry in entries)
+        {
+            var parent = Path.GetDirectoryName(entry.FullPath);
+            if (parent is null || !byPath.ContainsKey(parent))
+                roots.Add(entry);
+            else
+            {
+                if (!children.TryGetValue(parent, out var siblings))
+                    children.Add(parent, siblings = []);
+                siblings.Add(entry);
+            }
+        }
+        static IEnumerable<StagedEntry> Sorted(IEnumerable<StagedEntry> items) =>
+            items.OrderByDescending(entry => entry.IsDirectory)
+                .ThenBy(entry => entry.TreeName, StringComparer.OrdinalIgnoreCase);
+        var pending = new Stack<(StagedEntry Entry, int Depth)>();
+        foreach (var entry in Sorted(roots).Reverse()) pending.Push((entry, 0));
+        var rows = new List<StagedEntry>();
+        while (pending.TryPop(out var item))
+        {
+            var hasChildren = children.TryGetValue(item.Entry.FullPath, out var childEntries);
+            var expanded = hasChildren && !collapsedChangeFolders.Contains(item.Entry.FullPath);
+            rows.Add(item.Entry with { Depth = item.Depth, HasChildren = hasChildren, IsExpanded = expanded });
+            if (expanded)
+                foreach (var child in Sorted(childEntries!).Reverse()) pending.Push((child, item.Depth + 1));
+        }
+        ChangeList.ItemsSource = rows;
     }
 
     private void UpdateTreeItem(TreeViewItem item)
     {
         if (item.Tag is not TreeItemInfo info) return;
-        var changed = fileStatus is not null && (info.IsDirectory
-            ? fileStatus.HasDirectoryChanges(info.Path)
-            : fileStatus.GetFileStatus(info.Path) != FileChangeKind.None);
         item.Header = info.Name;
-        AutomationProperties.SetItemStatus(item, changed ? "変更あり" : string.Empty);
         var tooltip = string.Empty;
         if (!info.IsDirectory && fileLocks is not null && fileLocks.TryGetValue(info.Path, out var owners))
         {
@@ -585,7 +688,6 @@ public partial class WorkspaceWindow : Window
     {
         fileStatusNeedsRefresh = false;
         fileStatusRunning = true;
-        FileStatusText.Text = "変更状態を確認しています…";
         StageStatusText.Text = "ステージ状態を確認しています…";
         UpdateControls();
         bool IsCurrent() => !closed && version == fileStatusVersion && activeProject?.Id == project.Id;
@@ -597,16 +699,16 @@ public partial class WorkspaceWindow : Window
             ProjectRepositoryInfo.Validate(local, project.ServerUrl, project.RepositoryId);
             var result = await fileStatusService.ScanAsync(project.LocalPath);
             if (!IsCurrent()) return;
-            ApplyFileStatus(project, result);
+            ApplyFileStatus(result);
         }
         catch (LoreError ex)
         {
-            if (IsCurrent()) StageStatusText.Text = FileStatusText.Text = $"変更状態を確認できません（Loreエラー {ex.ReturnCode}）。\n{ex.Message}";
+            if (IsCurrent()) StageStatusText.Text = $"変更状態を確認できません（Loreエラー {ex.ReturnCode}）。\n{ex.Message}";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
             or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
         {
-            if (IsCurrent()) StageStatusText.Text = FileStatusText.Text = $"変更状態を確認できません: {ex.Message}";
+            if (IsCurrent()) StageStatusText.Text = $"変更状態を確認できません: {ex.Message}";
         }
         finally
         {

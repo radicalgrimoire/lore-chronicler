@@ -8,6 +8,77 @@ namespace Chronicler.Tests;
 public sealed class FileStatusServiceTests
 {
     [Fact]
+    public void ActualDirectoryAndChangedDescendantsShareOneAggregatedDisplayEntry()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "status-root");
+        var snapshot = new FileStatusSnapshot(root,
+            new Dictionary<string, FileChangeKind>
+            {
+                ["folder"] = FileChangeKind.Staged,
+                ["folder\\child.txt"] = FileChangeKind.Untracked
+            },
+            stagedDirectories: ["folder"],
+            actions: new Dictionary<string, ChangeAction> { ["folder"] = ChangeAction.Added });
+
+        var folder = Assert.Single(snapshot.AllDisplayEntries, entry => entry.RelativePath == "folder");
+        Assert.True(folder.IsDirectory && folder.IsStaged && folder.IsUnstaged);
+        Assert.Equal(ChangeAction.Added, folder.Action);
+        Assert.Equal("＋", folder.DirectoryActionIcon);
+        Assert.Equal(1, snapshot.StagedCount);
+        Assert.Single(snapshot.StagedEntries);
+    }
+
+    [Fact]
+    public async Task ScanSeparatesOneStagedAddFromUnstagedDeletesAndAdds()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "Chronicler.Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            using var globals = new LoreGlobalArgs { RepositoryPath = root, Offline = true };
+            using var create = new LoreRepositoryCreateArgs { RepositoryUrl = $"status-mixed-{Guid.NewGuid():N}" };
+            await Lore.RepositoryCreate(globals, create).WaitAsync();
+            var folder = Path.Combine(root, "folder");
+            Directory.CreateDirectory(folder);
+            var deleted = Enumerable.Range(1, 4)
+                .Select(index => Path.Combine(folder, $"old-{index}.txt")).ToArray();
+            foreach (var file in deleted) await File.WriteAllTextAsync(file, "tracked");
+            using (var stage = new LoreFileStageArgs { Paths = [folder], Scan = true })
+                await Lore.FileStage(globals, stage).WaitAsync();
+            using (var commit = new LoreRevisionCommitArgs { Message = "initial" })
+                await Lore.RevisionCommit(globals, commit).WaitAsync();
+            foreach (var file in deleted) File.Delete(file);
+            var added = Enumerable.Range(1, 4)
+                .Select(index => Path.Combine(folder, $"new-{index}.txt")).ToArray();
+            foreach (var file in added) await File.WriteAllTextAsync(file, "new");
+            await new LoreStageService().StageAsync(root, added[3]);
+
+            var result = await new LoreFileStatusService().ScanAsync(root);
+            Assert.Equal([added[3]], result.StagedPaths);
+            Assert.Contains(result.StagedEntries, entry => entry.FullPath == added[3] && entry.Action == ChangeAction.Added);
+            foreach (var file in deleted)
+                Assert.Contains(result.UnstagedEntries, entry => entry.FullPath == file && entry.Action == ChangeAction.Deleted);
+            foreach (var file in added.Take(3))
+                Assert.Contains(result.UnstagedEntries, entry => entry.FullPath == file && entry.Action == ChangeAction.Added);
+        }
+        finally
+        {
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    Directory.Delete(root, recursive: true);
+                    break;
+                }
+                catch (IOException) when (attempt < 20)
+                {
+                    await Task.Delay(100);
+                }
+            }
+        }
+    }
+
+    [Fact]
     public async Task ScanDistinguishesModifiedUntrackedAndStagedFiles()
     {
         var path = Path.Combine(Path.GetTempPath(), "Chronicler.Tests", Guid.NewGuid().ToString("N"));
@@ -46,7 +117,8 @@ public sealed class FileStatusServiceTests
             Assert.Equal(FileChangeKind.Staged | FileChangeKind.Modified, changes.GetFileStatus(trackedStaged));
             Assert.Equal(FileChangeKind.Untracked, changes.GetFileStatus(Path.Combine(path, "folder", "new.txt")));
             Assert.Equal(FileChangeKind.None, changes.GetFileStatus(Path.Combine(path, "ignored.txt")));
-            Assert.True(changes.HasDirectoryChanges(Path.Combine(path, "folder")));
+            Assert.Contains(changes.UnstagedEntries, entry => entry.FullPath == Path.Combine(path, "folder")
+                && entry.IsDirectory && entry.Action == ChangeAction.Added);
             await File.WriteAllTextAsync(tracked, "original");
             File.Delete(Path.Combine(path, "folder", "new.txt"));
             var refreshed = await new LoreFileStatusService().ScanAsync(path);
