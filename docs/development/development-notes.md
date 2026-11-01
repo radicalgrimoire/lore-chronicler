@@ -33,8 +33,8 @@ LoreのCLIコマンドに相当するGUI操作を追加するときは、コマ�
 
 1. [Lore CLIのコマンド実装](https://github.com/EpicGames/lore/tree/main/lore-client/src/cli/commands)で、対象コマンドの引数、呼び出すLore API、出力を確認する。
 2. [Lore本体のC APIヘッダー](https://github.com/EpicGames/lore/blob/main/lore-capi/lore.h)と[本体の実装](https://github.com/EpicGames/lore/tree/main/lore/src)で、APIの引数、イベント、成功・失敗時の挙動を確認する。
-3. [C# SDKのREADME](https://github.com/EpicGames/lore-dotnet#readme)と[サンプル](https://github.com/EpicGames/lore-dotnet/tree/main/examples)で、C#からの呼び出し方を確認する。Chroniclerでの先行例は[ログイン処理](../src/Chronicler/Authentication/LoreLoginService.cs)。
-4. 実際に使用する[プロジェクトのLoreVcsバージョン](../src/Chronicler/Chronicler.csproj)にそのAPIがあることを確認する。上記の `main` は開発中の最新版なので、採用バージョンと挙動が異なる場合は、そのバージョンのSDK・Lore本体を優先する。
+3. [C# SDKのREADME](https://github.com/EpicGames/lore-dotnet#readme)と[サンプル](https://github.com/EpicGames/lore-dotnet/tree/main/examples)で、C#からの呼び出し方を確認する。Chroniclerでの先行例は[ログイン処理](../../src/Chronicler/Authentication/LoreLoginService.cs)。
+4. 実際に使用する[プロジェクトのLoreVcsバージョン](../../src/Chronicler/Chronicler.csproj)にそのAPIがあることを確認する。上記の `main` は開発中の最新版なので、採用バージョンと挙動が異なる場合は、そのバージョンのSDK・Lore本体を優先する。
 
 SDKのイベントはコールバック内で必要なデータを読み取り、UIの更新はUIスレッドに渡す。長時間の操作で画面をブロックせず、失敗を利用者に表示する。トークンやログインURLなどの機密情報をログや設定ファイルに保存しない。書き込みや破壊的な操作は、実装とテストを試用リポジトリで確認する。
 
@@ -46,7 +46,7 @@ SDKのイベントはコールバック内で必要なデータを読み取り�
 4. 大量のファイルを想定し、一覧の仮想化とメモリ使用量を検証する。
 5. 試用リポジトリでプッシュの挙動を確認する。
 
-変更一覧からStage／Unstageまでの方針は[変更ワークフローの開発ノート](change-workflow-plan.md)を参照する。作業は[radicalgrimoireのissue #13](https://github.com/radicalgrimoire/radicalgrimoire/issues/13)で管理する。
+Stage／Unstageの実装は[issue #5](https://github.com/radicalgrimoire/chronicler/issues/5)で管理した。大量ファイルでの検証は[scanと操作時間](https://github.com/radicalgrimoire/chronicler/issues/8)および[メモリ使用量](https://github.com/radicalgrimoire/chronicler/issues/7)のイシューで管理する。
 
 ## メモリ計測
 
