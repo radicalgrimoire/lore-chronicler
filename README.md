@@ -12,6 +12,15 @@ Chroniclerは、Lore向けのWindowsデスクトップクライアントです�
 
 Lore SDKのネイティブライブラリを復元できるように、プロジェクトのランタイム識別子は `win-x64` に設定しています。初回ビルドにはNuGetへのアクセスが必要です。ローカルの `lore-dotnet` リポジトリはビルドに必要ありません。
 
+## リリース
+
+`vX.Y.Z` 形式の注釈付きタグを `main` にプッシュすると、GitHub Actions が Release 構成のテストを実行し、Windows x64 向け自己完結型の単一ファイル版をビルドします。生成された `Chronicler-win-x64.zip` は、同じタグの GitHub Release に添付されます。
+
+```powershell
+git tag -a v0.0.1 -m "Release v0.0.1"
+git push origin v0.0.1
+```
+
 ## ドキュメント
 
 - [ビルドと起動](docs/development/build-and-run.md)
