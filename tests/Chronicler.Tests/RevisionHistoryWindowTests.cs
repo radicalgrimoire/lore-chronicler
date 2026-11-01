@@ -232,7 +232,8 @@ public sealed class RevisionHistoryWindowTests : IDisposable
     private WorkspaceWindow CreateWindow(ProjectSettingsStore store, FakeHistoryService history, IBranchService? branches = null,
         ILatestService? latest = null, IRepositoryService? repositories = null) =>
         new(server, store, repositories ?? new UnusedRepositoryService(), (_, _) => true, latestService: latest,
-            repositoryInfo: repositoryInfo, branchService: branches, historyService: history);
+            repositoryInfo: repositoryInfo, branchService: branches, historyService: history,
+            fileStatusService: new FakeFileStatusService(), fileLockService: new FakeFileLockService());
 
     private static void SelectProject(WorkspaceWindow window, int index)
     {

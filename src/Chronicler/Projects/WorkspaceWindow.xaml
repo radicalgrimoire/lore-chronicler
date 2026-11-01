@@ -19,16 +19,16 @@
         <Border Grid.Row="1" Background="#F1F3F5" Padding="12,4,12,8">
             <WrapPanel>
                 <Button x:Name="RefreshTreeButton" Content="リフレッシュ" Padding="12,6" Margin="0,0,8,0"
-                        ToolTip="ローカルファイルの表示を更新します。サーバーには接続しません。"
+                        ToolTip="ローカルファイルと変更状態を更新し、サーバーからLoreのロック状態を取得します。変更状態の走査はLoreのローカル管理情報を更新します。"
                         Click="RefreshTreeButton_Click" />
                 <Button x:Name="GetLatestButton" Content="サーバーから取得" Padding="12,6" Margin="0,0,8,0"
                         ToolTip="初回はcloneし、clone済みなら最新リビジョンに更新します。"
                         Click="GetLatestButton_Click" />
+                <Button x:Name="PushButton" Content="プッシュ" Padding="12,6" Margin="0,0,8,0"
+                        ToolTip="現在のブランチのコミット済み履歴をサーバーへ送信します。"
+                        Click="PushButton_Click" />
                 <Button x:Name="LoginButton" Content="ログイン" Padding="12,6" Margin="0,0,8,0"
                         ToolTip="選択したプロジェクトのサーバーにログインします。" Click="LoginButton_Click" />
-                <Button x:Name="SubmitButton" Content="Submit（未実装）" Padding="12,6"
-                        IsEnabled="False" ToolTipService.ShowOnDisabled="True"
-                        ToolTip="サーバーへのサブミットは未実装です。" />
             </WrapPanel>
         </Border>
         <Grid Grid.Row="2" Margin="12">
@@ -45,9 +45,18 @@
                 <DockPanel Margin="0,0,0,8">
                     <Button x:Name="OpenFolderButton" Content="フォルダーを開く" DockPanel.Dock="Right"
                             Padding="10,4" Click="OpenFolderButton_Click" />
+                    <Button x:Name="StageButton" Content="ステージ" DockPanel.Dock="Right"
+                            Margin="0,0,8,0" Padding="10,4" Click="StageButton_Click"
+                            ToolTip="選択したファイルまたはフォルダー内の変更をステージします。" />
                     <StackPanel>
                         <TextBlock Text="ローカルファイル" FontWeight="SemiBold" />
                         <TextBlock x:Name="ActiveProjectText" Text="プロジェクトが選択されていません" Margin="0,4,0,0" />
+                        <TextBox x:Name="FileStatusText" Text="変更状態は未取得です。" Margin="0,4,0,0"
+                                 IsReadOnly="True" BorderThickness="0" Background="Transparent" Padding="0"
+                                 TextWrapping="Wrap" MaxHeight="90" VerticalScrollBarVisibility="Auto" />
+                        <TextBox x:Name="LockStatusText" Text="ロック状態は未取得です。" Margin="0,4,0,0"
+                                 IsReadOnly="True" BorderThickness="0" Background="Transparent" Padding="0"
+                                 TextWrapping="Wrap" MaxHeight="90" VerticalScrollBarVisibility="Auto" />
                         <TextBlock x:Name="CurrentBranchText" Text="ブランチ: 未取得" Margin="0,6,0,0" />
                         <WrapPanel Margin="0,4,0,0">
                             <ComboBox x:Name="BranchList" Width="210" MinWidth="100" DisplayMemberPath="DisplayName"
@@ -60,9 +69,50 @@
                     </StackPanel>
                 </DockPanel>
                 <TreeView x:Name="FileTree" Grid.Row="1" AutomationProperties.Name="ローカルファイル"
+                          SelectedItemChanged="FileTree_SelectedItemChanged"
                           VirtualizingStackPanel.IsVirtualizing="True"
                           VirtualizingStackPanel.VirtualizationMode="Recycling"
-                          ScrollViewer.CanContentScroll="True" />
+                          ScrollViewer.CanContentScroll="True">
+                    <TreeView.Resources>
+                        <Style TargetType="{x:Type TreeViewItem}">
+                            <Setter Property="HeaderTemplate">
+                                <Setter.Value>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock x:Name="HeaderText" Text="{Binding}" Padding="2,1" />
+                                            <TextBlock x:Name="LockIcon" Text="🔒" Margin="4,0,0,0"
+                                                       FontFamily="Segoe UI Emoji"
+                                                       ToolTip="{Binding RelativeSource={RelativeSource AncestorType={x:Type TreeViewItem}}, Path=(AutomationProperties.HelpText)}"
+                                                       AutomationProperties.Name="{Binding RelativeSource={RelativeSource AncestorType={x:Type TreeViewItem}}, Path=(AutomationProperties.HelpText)}">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="{x:Type TextBlock}">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType={x:Type TreeViewItem}}, Path=(AutomationProperties.HelpText)}" Value="">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType={x:Type TreeViewItem}}, Path=(AutomationProperties.HelpText)}" Value="{x:Null}">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType={x:Type TreeViewItem}}, Path=(AutomationProperties.ItemStatus)}"
+                                                         Value="変更あり">
+                                                <Setter TargetName="HeaderText" Property="Background" Value="#FFF2B3" />
+                                                <Setter TargetName="HeaderText" Property="Foreground" Value="#302400" />
+                                                <Setter TargetName="HeaderText" Property="FontWeight" Value="SemiBold" />
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </TreeView.Resources>
+                </TreeView>
             </Grid>
             <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Background="#D8DDE2" />
             <TabControl x:Name="WorkspaceTabs" Grid.Column="2" Margin="12,0,0,0"
@@ -94,7 +144,43 @@
                     </Grid>
                 </TabItem>
                 <TabItem x:Name="StageTab" Header="ステージ">
-                    <TextBlock Margin="8" Text="ステージ済みファイルの一覧は未実装です。" TextWrapping="Wrap" />
+                    <Grid Margin="8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <DockPanel>
+                            <Button x:Name="UnstageButton" DockPanel.Dock="Right" Content="アンステージ"
+                                    Padding="10,4" Click="UnstageButton_Click"
+                                    ToolTip="選択したファイルをステージから外します。作業ファイルは変更しません。" />
+                            <TextBlock Text="ステージ済みの変更" VerticalAlignment="Center" />
+                        </DockPanel>
+                        <TextBox x:Name="StageStatusText" Grid.Row="1" Margin="0,8,0,8"
+                                 Text="プロジェクトを選択してください。" TextWrapping="Wrap"
+                                 IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                                 Padding="0" MaxHeight="160" VerticalScrollBarVisibility="Auto" />
+                        <ListBox x:Name="StageList" Grid.Row="2" SelectionMode="Extended"
+                                 AutomationProperties.Name="ステージ済みファイル"
+                                 DisplayMemberPath="DisplayName"
+                                 SelectionChanged="StageList_SelectionChanged"
+                                 VirtualizingStackPanel.IsVirtualizing="True"
+                                 VirtualizingStackPanel.VirtualizationMode="Recycling"
+                                 ScrollViewer.CanContentScroll="True" />
+                        <StackPanel Grid.Row="3" Margin="0,10,0,0">
+                            <TextBlock Text="コミットメッセージ" FontWeight="SemiBold" />
+                            <TextBox x:Name="CommitMessageText" Margin="0,4,0,0" Height="68"
+                                     AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                     AutomationProperties.Name="コミットメッセージ"
+                                     TextChanged="CommitMessageText_TextChanged" />
+                            <TextBlock Margin="0,4,0,0" TextWrapping="Wrap"
+                                       Text="一覧の選択に関係なく、ステージ済みの変更をすべてコミットします。ステージ後に編集したファイルはコミット時の内容が使われます。" />
+                            <Button x:Name="CommitButton" Content="コミット" HorizontalAlignment="Right"
+                                    Margin="0,6,0,0" Padding="12,6" Click="CommitButton_Click"
+                                    ToolTip="ローカルにコミットします。サーバーには送信しません。" />
+                        </StackPanel>
+                    </Grid>
                 </TabItem>
                 <TabItem x:Name="UpdateLogTab" Header="更新ログ">
                     <Grid Margin="8">

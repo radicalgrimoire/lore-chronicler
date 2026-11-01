@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Chronicler.Servers;
@@ -22,10 +23,16 @@ public partial class WorkspaceWindow : Window
     private readonly IProjectRepositoryInfo repositoryInfo;
     private readonly IBranchService branchService;
     private readonly IRevisionHistoryService historyService;
+    private readonly IFileStatusService fileStatusService;
+    private readonly IFileLockService fileLockService;
+    private readonly IStageService stageService;
+    private readonly ICommitService commitService;
+    private readonly IPushService pushService;
     private readonly Func<string, string, bool> confirm;
     private readonly Func<string, string?> selectProjectName;
     private readonly Func<string, bool> authenticate;
     private readonly ObservableCollection<ProjectProfile> projects = [];
+    private readonly Dictionary<Guid, string> commitDrafts = [];
     private ProjectProfile? activeProject;
     private CancellationTokenSource treeCancellation = new();
     private bool available;
@@ -34,6 +41,13 @@ public partial class WorkspaceWindow : Window
     private bool historyLoading;
     private bool historyNeedsRefresh = true;
     private int historyVersion;
+    private int fileStatusVersion;
+    private bool fileStatusRunning;
+    private bool fileStatusNeedsRefresh;
+    private FileStatusSnapshot? fileStatus;
+    private int lockVersion;
+    private bool lockNeedsRefresh;
+    private IReadOnlyDictionary<string, IReadOnlyList<FileLockOwner>>? fileLocks;
 
     public WorkspaceWindow() : this(new ServerProfile(Guid.NewGuid(), "server", string.Empty),
         new ProjectSettingsStore(ProjectSettingsStore.DefaultPath), new LoreRepositoryService())
@@ -44,7 +58,9 @@ public partial class WorkspaceWindow : Window
         Func<string, string, bool>? confirm = null, ILatestService? latestService = null,
         IProjectRepositoryInfo? repositoryInfo = null,
         Func<string, string?>? selectProjectName = null, Func<string, bool>? authenticate = null,
-        IBranchService? branchService = null, IRevisionHistoryService? historyService = null)
+        IBranchService? branchService = null, IRevisionHistoryService? historyService = null,
+        IFileStatusService? fileStatusService = null, IFileLockService? fileLockService = null,
+        IStageService? stageService = null, ICommitService? commitService = null, IPushService? pushService = null)
     {
         this.server = server;
         this.store = store;
@@ -53,6 +69,11 @@ public partial class WorkspaceWindow : Window
         this.repositoryInfo = repositoryInfo ?? new ProjectRepositoryInfo();
         this.branchService = branchService ?? new LoreBranchService();
         this.historyService = historyService ?? new LoreRevisionHistoryService();
+        this.fileStatusService = fileStatusService ?? new LoreFileStatusService();
+        this.fileLockService = fileLockService ?? new LoreFileLockService();
+        this.stageService = stageService ?? new LoreStageService();
+        this.commitService = commitService ?? new LoreCommitService();
+        this.pushService = pushService ?? new LorePushService();
         this.confirm = confirm ?? ((message, title) =>
             MessageBox.Show(this, message, title, MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes);
         InitializeComponent();
@@ -101,14 +122,39 @@ public partial class WorkspaceWindow : Window
         RemoveProjectButton.IsEnabled = available && selected && !busy;
         ProjectList.IsEnabled = !busy;
         RefreshTreeButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready } && !busy;
-        GetLatestButton.IsEnabled = activeProject is not null && !busy;
+        GetLatestButton.IsEnabled = activeProject is not null && !busy && !fileStatusRunning;
+        PushButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready } && !busy && !fileStatusRunning;
         OpenFolderButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready } && !busy;
         BranchList.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready } && !busy;
         RefreshBranchesButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready } && !busy;
         SwitchBranchButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
-            && BranchList.SelectedItem is BranchEntry { IsCurrent: false } && !busy;
+            && BranchList.SelectedItem is BranchEntry { IsCurrent: false } && !busy && !fileStatusRunning;
         RefreshHistoryButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
             && !busy && !historyLoading;
+        StageButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
+            && !busy && !fileStatusRunning && fileStatus is not null
+            && FileTree.SelectedItem is TreeViewItem { Tag: TreeItemInfo { IsReparsePoint: false } };
+        UnstageButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
+            && !busy && !fileStatusRunning && fileStatus is not null && StageList.SelectedItems.Count > 0;
+        CommitMessageText.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready } && !busy;
+        CommitButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
+            && !busy && !fileStatusRunning && fileStatus is { UnresolvedConflictCount: 0 }
+            && StageList.Items.Count > 0 && !string.IsNullOrWhiteSpace(CommitMessageText.Text);
+    }
+
+    private void SetActiveProject(ProjectProfile? project)
+    {
+        var changed = activeProject?.Id != project?.Id;
+        activeProject = project;
+        if (changed)
+            CommitMessageText.Text = project is null ? string.Empty : commitDrafts.GetValueOrDefault(project.Id, string.Empty);
+    }
+
+    private void CommitMessageText_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!IsInitialized) return;
+        if (activeProject is not null) commitDrafts[activeProject.Id] = CommitMessageText.Text;
+        UpdateControls();
     }
 
     private void ProjectList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -158,7 +204,7 @@ public partial class WorkspaceWindow : Window
         {
             if (project.CloneState != ProjectCloneState.Ready)
             {
-                activeProject = project;
+                SetActiveProject(project);
                 InvalidateHistory();
                 ClearBranches();
                 ActiveProjectText.Text = project.Name;
@@ -201,7 +247,7 @@ public partial class WorkspaceWindow : Window
                 project = updated;
                 ReloadProjects(project.Id);
             }
-            activeProject = project;
+            SetActiveProject(project);
             InvalidateHistory();
             ClearBranches();
             ServerText.Text = $"サーバー: {project.ServerUrl}";
@@ -223,12 +269,24 @@ public partial class WorkspaceWindow : Window
         {
             busy = false;
             UpdateControls();
+            LoadPendingFileStatus();
             LoadHistoryIfVisible();
         }
     }
 
     private void ShowProjectTree()
     {
+        fileStatusVersion++;
+        lockVersion++;
+        fileStatus = null;
+        fileLocks = null;
+        fileStatusNeedsRefresh = activeProject is { CloneState: ProjectCloneState.Ready };
+        lockNeedsRefresh = fileStatusNeedsRefresh;
+        FileStatusText.Text = fileStatusNeedsRefresh ? "変更状態の確認を待っています…" : "変更状態は未取得です。";
+        StageList.ItemsSource = null;
+        StageStatusText.Text = fileStatusNeedsRefresh ? "ステージ状態の確認を待っています…"
+            : activeProject is null ? "プロジェクトを選択してください。" : "初回取得後に表示できます。";
+        LockStatusText.Text = lockNeedsRefresh ? "ロック状態の確認を待っています…" : "ロック状態は未取得です。";
         treeCancellation.Cancel();
         treeCancellation.Dispose();
         treeCancellation = new CancellationTokenSource();
@@ -244,11 +302,13 @@ public partial class WorkspaceWindow : Window
         var root = CreateDirectoryItem(activeProject.Name, activeProject.LocalPath);
         FileTree.Items.Add(root);
         root.IsExpanded = true;
+        LoadPendingFileStatus();
     }
 
     private TreeViewItem CreateDirectoryItem(string name, string path)
     {
-        var item = new TreeViewItem { Header = name, Tag = path };
+        var item = new TreeViewItem { Tag = new TreeItemInfo(name, path, true) };
+        UpdateTreeItem(item);
         item.Items.Add("読み込み中…");
         item.Expanded += Directory_Expanded;
         return item;
@@ -257,7 +317,7 @@ public partial class WorkspaceWindow : Window
     private async void Directory_Expanded(object sender, RoutedEventArgs e)
     {
         if (sender is not TreeViewItem item || !ReferenceEquals(e.OriginalSource, item)
-            || item.Tag is not string path || activeProject is null
+            || item.Tag is not TreeItemInfo { Path: var path } || activeProject is null
             || item.Items.Count != 1 || item.Items[0] is not string)
         {
             return;
@@ -281,7 +341,9 @@ public partial class WorkspaceWindow : Window
                 else
                 {
                     var suffix = entry.IsReparsePoint ? " (リンク)" : string.Empty;
-                    item.Items.Add(new TreeViewItem { Header = entry.Name + suffix, Tag = entry.Path });
+                    var child = new TreeViewItem { Tag = new TreeItemInfo(entry.Name + suffix, entry.Path, entry.IsDirectory, entry.IsReparsePoint) };
+                    UpdateTreeItem(child);
+                    item.Items.Add(child);
                 }
             }
         }
@@ -307,9 +369,328 @@ public partial class WorkspaceWindow : Window
         }
     }
 
+    private sealed record TreeItemInfo(string Name, string Path, bool IsDirectory, bool IsReparsePoint = false);
+
+    private void FileTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e) => UpdateControls();
+
+    private void StageList_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateControls();
+
+    private async void CommitButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (busy || fileStatusRunning || fileStatus is not { UnresolvedConflictCount: 0 } previous
+            || StageList.Items.Count == 0 || string.IsNullOrWhiteSpace(CommitMessageText.Text)
+            || activeProject is not { CloneState: ProjectCloneState.Ready } project) return;
+
+        var message = CommitMessageText.Text;
+        var expected = previous.StagedEntries;
+        var scanCompleted = false;
+        var attempted = false;
+        busy = true;
+        UpdateControls();
+        StatusText.Text = "コミット前にステージ状態を確認しています…";
+        StageStatusText.Text = "コミット前にステージ状態を確認しています…";
+        try
+        {
+            ReadLoreAttributes(project.LocalPath);
+            var local = await repositoryInfo.ReadLocalAsync(project.LocalPath);
+            ProjectRepositoryInfo.Validate(local, project.ServerUrl, project.RepositoryId);
+            var latest = await fileStatusService.ScanAsync(project.LocalPath);
+            scanCompleted = true;
+            ApplyFileStatus(project, latest);
+            var actual = latest.StagedEntries;
+            if (latest.UnresolvedConflictCount > 0 || actual.Count == 0 || !SameStagedEntries(expected, actual))
+            {
+                StatusText.Text = "ステージ状態が変わったためコミットを中止しました。一覧と競合を確認してください。";
+                return;
+            }
+
+            InvalidateHistory();
+            attempted = true;
+            StatusText.Text = "ローカルにコミットしています…";
+            StageStatusText.Text = "コミットしています…";
+            await commitService.CommitAsync(project.LocalPath, message);
+            CommitMessageText.Clear();
+            StatusText.Text = "ローカルにコミットしました。サーバーへの送信は行っていません。";
+        }
+        catch (LoreError ex)
+        {
+            StatusText.Text = attempted
+                ? $"コミットを確認できません（Loreエラー {ex.ReturnCode}）。再試行前に更新ログとステージ状態を確認してください。\n{ex.Message}"
+                : $"コミット前の確認に失敗しました（Loreエラー {ex.ReturnCode}）。\n{ex.Message}";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+            or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+        {
+            StatusText.Text = attempted
+                ? $"コミットを確認できません。再試行前に更新ログとステージ状態を確認してください。\n{ex.Message}"
+                : $"コミット前の確認に失敗しました: {ex.Message}";
+        }
+        finally
+        {
+            if (attempted || !scanCompleted)
+                InvalidateFileStatus();
+            busy = false;
+            UpdateControls();
+            LoadPendingFileStatus();
+            LoadHistoryIfVisible();
+        }
+    }
+
+    private static bool SameStagedEntries(IReadOnlyList<StagedEntry> left, IReadOnlyList<StagedEntry> right) =>
+        left.Count == right.Count && left.Zip(right).All(pair =>
+            pair.First.IsDirectory == pair.Second.IsDirectory
+            && string.Equals(pair.First.FullPath, pair.Second.FullPath, StringComparison.OrdinalIgnoreCase));
+
+    private async void StageButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (busy || fileStatusRunning || fileStatus is null
+            || activeProject is not { CloneState: ProjectCloneState.Ready } project
+            || FileTree.SelectedItem is not TreeViewItem { Tag: TreeItemInfo { IsReparsePoint: false } info }) return;
+        WorkspaceTabs.SelectedItem = StageTab;
+        await ChangeStageAsync(project, [info.Path], stage: true);
+    }
+
+    private async void UnstageButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (busy || fileStatusRunning || fileStatus is null
+            || activeProject is not { CloneState: ProjectCloneState.Ready } project) return;
+        var paths = StageList.SelectedItems.OfType<StagedEntry>().Select(entry => entry.FullPath).ToArray();
+        if (paths.Length == 0) return;
+        await ChangeStageAsync(project, paths, stage: false);
+    }
+
+    private async Task ChangeStageAsync(ProjectProfile project, string[] paths, bool stage)
+    {
+        var operation = stage ? "ステージ" : "アンステージ";
+        busy = true;
+        UpdateControls();
+        StatusText.Text = $"{operation}しています…";
+        StageStatusText.Text = $"{operation}しています…";
+        var attempted = false;
+        try
+        {
+            ReadLoreAttributes(project.LocalPath);
+            var local = await repositoryInfo.ReadLocalAsync(project.LocalPath);
+            ProjectRepositoryInfo.Validate(local, project.ServerUrl, project.RepositoryId);
+            attempted = true;
+            if (stage) await stageService.StageAsync(project.LocalPath, paths[0]);
+            else await stageService.UnstageAsync(project.LocalPath, paths);
+            StatusText.Text = $"{operation}しました。状態を再確認します。";
+        }
+        catch (LoreError ex)
+        {
+            StatusText.Text = $"{operation}に失敗しました（Loreエラー {ex.ReturnCode}）。一部が変更された可能性があります。\n{ex.Message}";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+            or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+        {
+            StatusText.Text = $"{operation}を完了できません。{(attempted ? "一部が変更された可能性があります。 " : string.Empty)}{ex.Message}";
+        }
+        finally
+        {
+            if (attempted)
+                InvalidateFileStatus();
+            busy = false;
+            UpdateControls();
+            LoadPendingFileStatus();
+        }
+    }
+
+    private void InvalidateFileStatus()
+    {
+        fileStatusVersion++;
+        fileStatus = null;
+        fileStatusNeedsRefresh = true;
+        StageList.ItemsSource = null;
+        StageStatusText.Text = "ステージ状態を再確認しています…";
+        FileStatusText.Text = "変更状態を再確認しています…";
+        foreach (var root in FileTree.Items.OfType<TreeViewItem>()) UpdateTreeItem(root);
+    }
+
+    private void ApplyFileStatus(ProjectProfile project, FileStatusSnapshot result)
+    {
+        fileStatus = result;
+        foreach (var root in FileTree.Items.OfType<TreeViewItem>()) UpdateTreeItem(root);
+        FileStatusText.Text = "変更状態を表示しています（前回の確認時点）。";
+        var staged = result.StagedEntries;
+        StageList.ItemsSource = staged;
+        StageStatusText.Text = staged.Count == 0 ? "ステージ済みの変更はありません。" : $"{staged.Count}件（前回の確認時点）。フォルダーのアンステージは配下も対象です。";
+        if (result.UnresolvedConflictCount > 0)
+            StageStatusText.Text += $" 未解決の競合が{result.UnresolvedConflictCount}件あり、一覧には含まれていません。";
+    }
+
+    private void UpdateTreeItem(TreeViewItem item)
+    {
+        if (item.Tag is not TreeItemInfo info) return;
+        var changed = fileStatus is not null && (info.IsDirectory
+            ? fileStatus.HasDirectoryChanges(info.Path)
+            : fileStatus.GetFileStatus(info.Path) != FileChangeKind.None);
+        item.Header = info.Name;
+        AutomationProperties.SetItemStatus(item, changed ? "変更あり" : string.Empty);
+        var tooltip = string.Empty;
+        if (!info.IsDirectory && fileLocks is not null && fileLocks.TryGetValue(info.Path, out var owners))
+        {
+            tooltip = "Loreのロック取得者:\n" + string.Join("\n", owners.Select(owner =>
+                $"{(string.IsNullOrWhiteSpace(owner.Name) ? (string.IsNullOrWhiteSpace(owner.Id) ? "不明" : owner.Id) : owner.Name)}（ブランチID: {owner.Branch}）"));
+        }
+        AutomationProperties.SetHelpText(item, tooltip);
+        foreach (var child in item.Items.OfType<TreeViewItem>()) UpdateTreeItem(child);
+    }
+
+    private void LoadPendingFileStatus()
+    {
+        LoadPendingLocks();
+        if (closed || busy || fileStatusRunning || !fileStatusNeedsRefresh
+            || activeProject is not { CloneState: ProjectCloneState.Ready } project) return;
+        _ = LoadFileStatusAsync(project, fileStatusVersion);
+    }
+
+    private void LoadPendingLocks()
+    {
+        if (closed || busy || !lockNeedsRefresh || activeProject is not { CloneState: ProjectCloneState.Ready } project) return;
+        lockNeedsRefresh = false;
+        _ = LoadLocksAsync(project, lockVersion);
+    }
+
+    private async Task LoadLocksAsync(ProjectProfile project, int version)
+    {
+        LockStatusText.Text = "サーバーのロック状態を確認しています…";
+        bool IsCurrent() => !closed && version == lockVersion && activeProject?.Id == project.Id;
+        try
+        {
+            ReadLoreAttributes(project.LocalPath);
+            var local = await repositoryInfo.ReadLocalAsync(project.LocalPath);
+            if (!IsCurrent()) return;
+            ProjectRepositoryInfo.Validate(local, project.ServerUrl, project.RepositoryId);
+            var result = await fileLockService.QueryAsync(project.LocalPath);
+            if (!IsCurrent()) return;
+            fileLocks = result.Files;
+            foreach (var root in FileTree.Items.OfType<TreeViewItem>()) UpdateTreeItem(root);
+            LockStatusText.Text = result.Warning is null
+                ? "ロック状態を表示しています（前回の確認時点）。"
+                : $"ロック状態を表示しています（前回の確認時点）。\n{result.Warning}";
+        }
+        catch (LoreError ex)
+        {
+            if (IsCurrent()) LockStatusText.Text = $"ロック状態を確認できません（Loreエラー {ex.ReturnCode}）。\n{ex.Message}";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+            or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+        {
+            if (IsCurrent()) LockStatusText.Text = $"ロック状態を確認できません: {ex.Message}";
+        }
+    }
+
+    private async Task LoadFileStatusAsync(ProjectProfile project, int version)
+    {
+        fileStatusNeedsRefresh = false;
+        fileStatusRunning = true;
+        FileStatusText.Text = "変更状態を確認しています…";
+        StageStatusText.Text = "ステージ状態を確認しています…";
+        UpdateControls();
+        bool IsCurrent() => !closed && version == fileStatusVersion && activeProject?.Id == project.Id;
+        try
+        {
+            ReadLoreAttributes(project.LocalPath);
+            var local = await repositoryInfo.ReadLocalAsync(project.LocalPath);
+            if (!IsCurrent()) return;
+            ProjectRepositoryInfo.Validate(local, project.ServerUrl, project.RepositoryId);
+            var result = await fileStatusService.ScanAsync(project.LocalPath);
+            if (!IsCurrent()) return;
+            ApplyFileStatus(project, result);
+        }
+        catch (LoreError ex)
+        {
+            if (IsCurrent()) StageStatusText.Text = FileStatusText.Text = $"変更状態を確認できません（Loreエラー {ex.ReturnCode}）。\n{ex.Message}";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+            or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+        {
+            if (IsCurrent()) StageStatusText.Text = FileStatusText.Text = $"変更状態を確認できません: {ex.Message}";
+        }
+        finally
+        {
+            fileStatusRunning = false;
+            if (!closed)
+            {
+                UpdateControls();
+                LoadPendingFileStatus();
+            }
+        }
+    }
+
+    private async void PushButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (busy || fileStatusRunning || activeProject is not { CloneState: ProjectCloneState.Ready } project) return;
+        busy = true;
+        UpdateControls();
+        var attempted = false;
+        var progressActive = true;
+        try
+        {
+            StatusText.Text = "プッシュ前にサーバーとローカルの履歴を確認しています…";
+            ReadLoreAttributes(project.LocalPath);
+            var local = await repositoryInfo.ReadLocalAsync(project.LocalPath);
+            ProjectRepositoryInfo.Validate(local, project.ServerUrl, project.RepositoryId);
+            var remote = await repositoryInfo.ReadRemoteAsync(project.LocalPath);
+            ProjectRepositoryInfo.ValidateRemote(local, remote);
+            if (!string.Equals(remote.Name, project.RepositoryName, StringComparison.Ordinal))
+                throw new InvalidOperationException("サーバーのリポジトリ名が登録情報と一致しません。再登録してください。");
+            ProjectRepositoryInfo.Validate(await repositoryInfo.ReadLocalAsync(project.LocalPath), project.ServerUrl, local.RepositoryId);
+            var status = await pushService.PrepareAsync(project.LocalPath);
+            if (!confirm($"プロジェクト: {project.Name}\nサーバー: {project.ServerUrl}\nリポジトリ: {project.RepositoryName}\nブランチ: {status.Branch}\nローカルのリビジョン: {status.LocalRevision}\n\nコミット済みの履歴を送信します。未コミットの変更は送信しません。リンク先やレイヤーのリポジトリも送信される場合があります。\nサーバーにブランチがない場合や削除済みの場合は、作成または復元されることがあります。\n\nプッシュを開始しますか？", "プッシュの確認"))
+            {
+                StatusText.Text = "プッシュを中止しました。";
+                return;
+            }
+
+            ProjectRepositoryInfo.Validate(await repositoryInfo.ReadLocalAsync(project.LocalPath), project.ServerUrl, local.RepositoryId);
+            var progress = new Progress<string>(message => { if (progressActive && !closed) StatusText.Text = message; });
+            StatusText.Text = "プッシュ中です…";
+            attempted = true;
+            await pushService.PushAsync(project.LocalPath, status, progress);
+            progressActive = false;
+            StatusText.Text = "プッシュ後のサーバー状態を確認しています…";
+            if (await pushService.VerifyAsync(project.LocalPath, status))
+                StatusText.Text = $"ブランチ「{status.Branch}」をプッシュしました。";
+            else
+                StatusText.Text = "プッシュ処理は完了しましたが、サーバーのリビジョンを確認できません。再試行前にサーバーの状態を確認してください。";
+        }
+        catch (PushException ex)
+        {
+            StatusText.Text = ex.Message;
+        }
+        catch (LoreError ex)
+        {
+            StatusText.Text = attempted
+                ? $"プッシュを完了できませんでした（Loreエラー {ex.ReturnCode}）。一部が送信された可能性があります。再試行前にサーバーの状態を確認してください。\n{ex.Message}"
+                : $"プッシュ前の確認に失敗しました（Loreエラー {ex.ReturnCode}）。\n{ex.Message}";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+            or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+        {
+            StatusText.Text = attempted
+                ? $"プッシュまたは送信後の確認に失敗しました。一部が送信された可能性があります。再試行前にサーバーの状態を確認してください。\n{ex.Message}"
+                : $"プッシュ前の確認に失敗しました: {ex.Message}";
+        }
+        finally
+        {
+            progressActive = false;
+            if (attempted)
+            {
+                InvalidateHistory();
+                ClearBranches();
+            }
+            busy = false;
+            UpdateControls();
+            LoadPendingFileStatus();
+            LoadHistoryIfVisible();
+        }
+    }
+
     private async void GetLatestButton_Click(object sender, RoutedEventArgs e)
     {
-        if (busy || activeProject is not { } project)
+        if (busy || fileStatusRunning || activeProject is not { } project)
         {
             return;
         }
@@ -350,7 +731,7 @@ public partial class WorkspaceWindow : Window
                 current[index] = inProgress;
                 store.Save(current);
                 started = true;
-                activeProject = inProgress;
+                SetActiveProject(inProgress);
                 InvalidateHistory();
                 ReloadProjects(inProgress.Id);
                 if (!exists) CloneDestination.Reserve(project.LocalPath);
@@ -372,7 +753,7 @@ public partial class WorkspaceWindow : Window
                 var completed = inProgress with { CloneState = ProjectCloneState.Ready, RepositoryId = local.RepositoryId };
                 current[index] = completed;
                 store.Save(current);
-                activeProject = completed;
+                SetActiveProject(completed);
                 InvalidateHistory();
                 ReloadProjects(completed.Id);
                 ShowProjectTree();
@@ -394,6 +775,7 @@ public partial class WorkspaceWindow : Window
             {
                 busy = false;
                 UpdateControls();
+                LoadPendingFileStatus();
                 LoadHistoryIfVisible();
             }
         }
@@ -439,6 +821,7 @@ public partial class WorkspaceWindow : Window
             ShowProjectTree();
             busy = false;
             UpdateControls();
+            LoadPendingFileStatus();
             LoadHistoryIfVisible();
         }
     }
@@ -473,7 +856,7 @@ public partial class WorkspaceWindow : Window
                 store.Save(current);
                 if (activeProject?.Id == project.Id)
                 {
-                    activeProject = updated;
+                    SetActiveProject(updated);
                     ActiveProjectText.Text = updated.Name;
                     Title = $"Chronicler - {updated.Name}";
                     ShowProjectTree();
@@ -503,7 +886,8 @@ public partial class WorkspaceWindow : Window
             store.Save(current);
             if (activeProject?.Id == project.Id)
             {
-                activeProject = null;
+                SetActiveProject(null);
+                commitDrafts.Remove(project.Id);
                 InvalidateHistory();
                 ClearBranches();
                 ServerText.Text = "サーバー: 未選択";
@@ -678,12 +1062,13 @@ public partial class WorkspaceWindow : Window
         {
             busy = false;
             UpdateControls();
+            LoadPendingFileStatus();
         }
     }
 
     private async void SwitchBranchButton_Click(object sender, RoutedEventArgs e)
     {
-        if (busy || activeProject is not { CloneState: ProjectCloneState.Ready } project
+        if (busy || fileStatusRunning || activeProject is not { CloneState: ProjectCloneState.Ready } project
             || BranchList.SelectedItem is not BranchEntry { IsCurrent: false } branch) return;
         var source = branch.IsLocal ? "ローカルのリビジョン" : "サーバーのリビジョン";
         if (!confirm($"プロジェクト: {project.Name}\n切り替え先: {branch.Name}（{source}）\n\n作業ファイルが追加・変更・削除される場合があります。未コミットの変更はLoreが保持できない場合、切り替えに失敗します。\n\n切り替えますか？", "ブランチ切り替え"))
@@ -743,6 +1128,7 @@ public partial class WorkspaceWindow : Window
         StatusText.Text = message;
         busy = false;
         UpdateControls();
+        LoadPendingFileStatus();
         LoadHistoryIfVisible();
     }
 
@@ -770,7 +1156,7 @@ public partial class WorkspaceWindow : Window
 
     private void Window_Closing(object? sender, CancelEventArgs e)
     {
-        if (busy)
+        if (busy || fileStatusRunning)
         {
             e.Cancel = true;
             StatusText.Text = "処理中です。完了するまでお待ちください。";
@@ -781,6 +1167,7 @@ public partial class WorkspaceWindow : Window
     {
         closed = true;
         historyVersion++;
+        lockVersion++;
         treeCancellation.Cancel();
         treeCancellation.Dispose();
     }

@@ -166,27 +166,32 @@ public class MainWindowTests
         Dispatcher.PushFrame(frame);
     }
 
+    private static readonly object StaTestLock = new();
+
     internal static void RunSta(Action action)
     {
-        Exception? error = null;
-        var thread = new Thread(() =>
+        lock (StaTestLock)
         {
-            SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
-            try
+            Exception? error = null;
+            var thread = new Thread(() =>
             {
-                action();
-            }
-            catch (Exception ex)
+                SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
+                try
+                {
+                    action();
+                }
+                catch (Exception ex)
+                {
+                    error = ex;
+                }
+            });
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+            thread.Join();
+            if (error is not null)
             {
-                error = ex;
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
             }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-        if (error is not null)
-        {
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
         }
     }
 

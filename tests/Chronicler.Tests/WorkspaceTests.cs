@@ -11,6 +11,16 @@ public sealed class WorkspaceTests : IDisposable
     private readonly string directory = Path.Combine(Path.GetTempPath(), "Chronicler.Tests", Guid.NewGuid().ToString("N"));
     private readonly ServerProfile server = new(Guid.NewGuid(), "Server", "lore://localhost:41337");
 
+    private static WorkspaceWindow CreateWorkspaceWindow(ServerProfile server, ProjectSettingsStore store,
+        IRepositoryService repositoryService, Func<string, string, bool>? confirm = null,
+        ILatestService? latestService = null, IProjectRepositoryInfo? repositoryInfo = null,
+        Func<string, string?>? selectProjectName = null, Func<string, bool>? authenticate = null,
+        IBranchService? branchService = null, IRevisionHistoryService? historyService = null,
+        IFileStatusService? fileStatusService = null, IFileLockService? fileLockService = null) =>
+        new(server, store, repositoryService, confirm, latestService, repositoryInfo, selectProjectName,
+            authenticate, branchService, historyService, fileStatusService ?? new FakeFileStatusService(),
+            fileLockService ?? new FakeFileLockService());
+
     [Fact]
     public void LocalTreeShowsFilesAndDirectoriesButNotLoreMetadata()
     {
@@ -37,7 +47,7 @@ public sealed class WorkspaceTests : IDisposable
             var project = new ProjectProfile(Guid.NewGuid(), "Project", server.Id, server.RemoteUrl, "repo",
                 Path.Combine(directory, "clone"), CloneState: ProjectCloneState.Pending);
             store.Save([project]);
-            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
                 repositoryInfo: new FakeProjectRepositoryInfo(), selectProjectName: _ => "Renamed");
             window.Show();
             var tabs = Control<TabControl>(window, "WorkspaceTabs");
@@ -56,8 +66,8 @@ public sealed class WorkspaceTests : IDisposable
 
             tabs.SelectedItem = stage;
             PumpDispatcher();
-            Assert.True(Assert.IsType<TextBlock>(stage.Content).IsVisible);
-            Assert.Contains("未実装", Assert.IsType<TextBlock>(stage.Content).Text);
+            Assert.True(Assert.IsType<Grid>(stage.Content).IsVisible);
+            Assert.Contains("初回取得後", Control<TextBox>(window, "StageStatusText").Text);
             tabs.SelectedItem = log;
             PumpDispatcher();
             Assert.True(Assert.IsType<Grid>(log.Content).IsVisible);
@@ -94,18 +104,18 @@ public sealed class WorkspaceTests : IDisposable
             var second = new ProjectProfile(Guid.NewGuid(), "Second", server.Id, server.RemoteUrl, "repo2", secondPath);
             var other = new ProjectProfile(Guid.NewGuid(), "Other", Guid.NewGuid(), server.RemoteUrl, "repo3", Path.Combine(directory, "other"));
             store.Save([first, second, other]);
-            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true, repositoryInfo: new FakeProjectRepositoryInfo());
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true, repositoryInfo: new FakeProjectRepositoryInfo());
             var list = Control<ListBox>(window, "ProjectList");
             var tree = Control<TreeView>(window, "FileTree");
             var refresh = Control<Button>(window, "RefreshTreeButton");
             var getLatest = Control<Button>(window, "GetLatestButton");
-            var submit = Control<Button>(window, "SubmitButton");
+            var push = Control<Button>(window, "PushButton");
             Assert.Equal(3, list.Items.Count);
             Assert.Contains("選択されていません", Control<TextBlock>(window, "ActiveProjectText").Text);
             Assert.Empty(tree.Items);
             Assert.False(refresh.IsEnabled);
             Assert.False(getLatest.IsEnabled);
-            Assert.False(submit.IsEnabled);
+            Assert.False(push.IsEnabled);
 
             list.SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
@@ -113,7 +123,7 @@ public sealed class WorkspaceTests : IDisposable
             Assert.Equal("First", Assert.IsType<TreeViewItem>(tree.Items[0]).Header);
             Assert.True(refresh.IsEnabled);
             Assert.True(getLatest.IsEnabled);
-            Assert.False(submit.IsEnabled);
+            Assert.True(push.IsEnabled);
 
             list.SelectedIndex = 1;
             Click(window, "SwitchProjectButton");
@@ -150,7 +160,9 @@ public sealed class WorkspaceTests : IDisposable
             store.Load();
             store.Save([new ProjectProfile(Guid.NewGuid(), "Latest", server.Id, server.RemoteUrl, "repo", path)]);
             var service = new FakeLatestService();
-            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true, service, new FakeProjectRepositoryInfo());
+            var fileStatus = new FakeFileStatusService();
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true, service,
+                new FakeProjectRepositoryInfo(), fileStatusService: fileStatus);
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
             Click(window, "GetLatestButton");
@@ -167,6 +179,7 @@ public sealed class WorkspaceTests : IDisposable
             Assert.True(Control<Button>(window, "GetLatestButton").IsEnabled);
             Assert.Contains("更新しました", Control<TextBlock>(window, "StatusText").Text);
             WaitForChildren(Control<TreeView>(window, "FileTree"), "downloaded.txt");
+            Assert.Equal([path, path], fileStatus.Paths);
             window.Close();
         });
     }
@@ -181,7 +194,7 @@ public sealed class WorkspaceTests : IDisposable
             store.Load();
             store.Save([new ProjectProfile(Guid.NewGuid(), "Latest", server.Id, server.RemoteUrl, "repo", path)]);
             var service = new FakeLatestService();
-            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true, service, new FakeProjectRepositoryInfo());
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true, service, new FakeProjectRepositoryInfo());
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
             Click(window, "GetLatestButton");
@@ -205,7 +218,7 @@ public sealed class WorkspaceTests : IDisposable
             store.Load();
             store.Save([new ProjectProfile(Guid.NewGuid(), "Latest", server.Id, server.RemoteUrl, "repo", path)]);
             var service = new FakeLatestService();
-            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => false, service, new FakeProjectRepositoryInfo());
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => false, service, new FakeProjectRepositoryInfo());
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
             Click(window, "GetLatestButton");
@@ -225,7 +238,7 @@ public sealed class WorkspaceTests : IDisposable
             var first = new ProjectProfile(Guid.NewGuid(), "First", server.Id, server.RemoteUrl, "repo1", firstPath);
             var missing = new ProjectProfile(Guid.NewGuid(), "Missing", server.Id, server.RemoteUrl, "repo2", Path.Combine(directory, "missing"));
             store.Save([first, missing]);
-            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), repositoryInfo: new FakeProjectRepositoryInfo());
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), repositoryInfo: new FakeProjectRepositoryInfo());
             var list = Control<ListBox>(window, "ProjectList");
             list.SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
@@ -248,7 +261,7 @@ public sealed class WorkspaceTests : IDisposable
             store.Load();
             var project = new ProjectProfile(Guid.NewGuid(), "repo", server.Id, info.RemoteUrl, "repo", path, info.RepositoryId);
             store.Save([project]);
-            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
                 repositoryInfo: info, selectProjectName: _ => " New name ");
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
@@ -274,7 +287,7 @@ public sealed class WorkspaceTests : IDisposable
             var info = new FakeProjectRepositoryInfo { RemoteUrl = otherUrl };
             store.Save([new ProjectProfile(Guid.NewGuid(), "Other", Guid.NewGuid(), otherUrl, "repo", path, info.RepositoryId)]);
             string? authUrl = null;
-            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), repositoryInfo: info,
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), repositoryInfo: info,
                 authenticate: url => { authUrl = url; return true; });
             var list = Control<ListBox>(window, "ProjectList");
             Assert.Single(list.Items);
@@ -305,7 +318,7 @@ public sealed class WorkspaceTests : IDisposable
             var clone = new FakeCloneService();
             var latest = new FakeLatestService();
             var info = new FakeProjectRepositoryInfo();
-            var window = new WorkspaceWindow(server, store, clone, (_, _) => true, latest, info);
+            var window = CreateWorkspaceWindow(server, store, clone, (_, _) => true, latest, info);
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
             Assert.False(Directory.Exists(path));
@@ -342,7 +355,7 @@ public sealed class WorkspaceTests : IDisposable
             store.Save([new ProjectProfile(Guid.NewGuid(), "Project", server.Id, server.RemoteUrl, "repo", path,
                 CloneState: ProjectCloneState.Pending)]);
             var clone = new FakeCloneService();
-            var window = new WorkspaceWindow(server, store, clone, (_, _) => true, repositoryInfo: new FakeProjectRepositoryInfo());
+            var window = CreateWorkspaceWindow(server, store, clone, (_, _) => true, repositoryInfo: new FakeProjectRepositoryInfo());
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
             Click(window, "GetLatestButton");
@@ -369,7 +382,7 @@ public sealed class WorkspaceTests : IDisposable
             store.Save([new ProjectProfile(Guid.NewGuid(), "Project", server.Id, server.RemoteUrl, "repo", path,
                 CloneState: ProjectCloneState.Pending)]);
             var clone = new FakeCloneService();
-            var window = new WorkspaceWindow(server, store, clone, (_, _) => true, repositoryInfo: new FakeProjectRepositoryInfo());
+            var window = CreateWorkspaceWindow(server, store, clone, (_, _) => true, repositoryInfo: new FakeProjectRepositoryInfo());
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
             File.WriteAllText(Path.Combine(path, "keep"), "keep");
@@ -394,7 +407,7 @@ public sealed class WorkspaceTests : IDisposable
             store.Save([new ProjectProfile(Guid.NewGuid(), "Project", server.Id, server.RemoteUrl, "repo", path, info.RepositoryId)]);
             var clone = new FakeCloneService();
             var latest = new FakeLatestService();
-            var window = new WorkspaceWindow(server, store, clone, (_, _) => true, latest, info);
+            var window = CreateWorkspaceWindow(server, store, clone, (_, _) => true, latest, info);
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
             Directory.Delete(lorePath);
@@ -418,7 +431,7 @@ public sealed class WorkspaceTests : IDisposable
             var info = new FakeProjectRepositoryInfo();
             store.Save([new ProjectProfile(Guid.NewGuid(), "Project", server.Id, server.RemoteUrl, "repo", path, info.RepositoryId)]);
             var latest = new FakeLatestService();
-            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true, latest, info);
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true, latest, info);
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
             info.RepositoryId = "ABCDEF1234567890ABCDEF1234567890";
@@ -441,7 +454,7 @@ public sealed class WorkspaceTests : IDisposable
             var info = new FakeProjectRepositoryInfo();
             store.Save([new ProjectProfile(Guid.NewGuid(), "Project", server.Id, server.RemoteUrl, "repo", path, info.RepositoryId)]);
             var latest = new FakeLatestService();
-            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true, latest, info);
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true, latest, info);
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
             info.RemoteError = new InvalidOperationException("サーバーに接続できません。");
@@ -464,7 +477,7 @@ public sealed class WorkspaceTests : IDisposable
             store.Load();
             store.Save([new ProjectProfile(Guid.NewGuid(), "Legacy", server.Id, server.RemoteUrl, "repo", path)]);
             var info = new FakeProjectRepositoryInfo { ServerRepositoryId = "ABCDEF1234567890ABCDEF1234567890" };
-            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), repositoryInfo: info);
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), repositoryInfo: info);
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
             Assert.Null(Assert.Single(new ProjectSettingsStore(settingsPath).Load()).RepositoryId);
@@ -488,8 +501,9 @@ public sealed class WorkspaceTests : IDisposable
             var info = new FakeProjectRepositoryInfo();
             store.Save([new ProjectProfile(Guid.NewGuid(), "Project", server.Id, server.RemoteUrl, "repo", path, info.RepositoryId)]);
             var branches = new FakeBranchService();
-            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
-                repositoryInfo: info, branchService: branches);
+            var fileStatus = new FakeFileStatusService();
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
+                repositoryInfo: info, branchService: branches, fileStatusService: fileStatus);
             Assert.False(Control<Button>(window, "RefreshBranchesButton").IsEnabled);
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
@@ -507,6 +521,7 @@ public sealed class WorkspaceTests : IDisposable
             Assert.Contains("feature", Control<TextBlock>(window, "CurrentBranchText").Text);
             Assert.Contains("切り替えました", Control<TextBlock>(window, "StatusText").Text);
             Assert.True(Control<Button>(window, "SwitchProjectButton").IsEnabled);
+            Assert.Equal([path, path], fileStatus.Paths);
             window.Close();
         });
     }
@@ -522,7 +537,7 @@ public sealed class WorkspaceTests : IDisposable
             var info = new FakeProjectRepositoryInfo();
             store.Save([new ProjectProfile(Guid.NewGuid(), "Project", server.Id, server.RemoteUrl, "repo", path, info.RepositoryId)]);
             var branches = new FakeBranchService { RemoteAvailable = false };
-            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
                 repositoryInfo: info, branchService: branches);
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
@@ -550,7 +565,7 @@ public sealed class WorkspaceTests : IDisposable
             var info = new FakeProjectRepositoryInfo();
             store.Save([new ProjectProfile(Guid.NewGuid(), "Project", server.Id, server.RemoteUrl, "repo", path, info.RepositoryId)]);
             var branches = new FakeBranchService();
-            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => false,
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => false,
                 repositoryInfo: info, branchService: branches);
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
@@ -574,7 +589,7 @@ public sealed class WorkspaceTests : IDisposable
             var info = new FakeProjectRepositoryInfo();
             store.Save([new ProjectProfile(Guid.NewGuid(), "Project", server.Id, server.RemoteUrl, "repo", path, info.RepositoryId)]);
             var branches = new FakeBranchService();
-            var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
                 repositoryInfo: info, branchService: branches);
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
