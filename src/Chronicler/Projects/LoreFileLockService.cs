@@ -8,45 +8,29 @@ namespace Chronicler.Projects;
 
 public sealed record FileLockOwner(string Id, string? Name, string Branch);
 public sealed record FileLockResult(IReadOnlyDictionary<string, IReadOnlyList<FileLockOwner>> Files, string? Warning);
+public sealed record MyFileLock(string FullPath, string RelativePath, string Branch, string OwnerId);
 
 public interface IFileLockService
 {
     Task<FileLockResult> QueryAsync(string path);
 }
 
-public sealed class LoreFileLockService : IFileLockService
+public interface IFileLockActionsService
+{
+    Task<IReadOnlyList<MyFileLock>> QueryMineAsync(string path);
+    Task AcquireAsync(string path, string file);
+    Task ReleaseAsync(string path, MyFileLock fileLock);
+}
+
+public sealed class LoreFileLockService : IFileLockService, IFileLockActionsService
 {
     public Task<FileLockResult> QueryAsync(string path) => Task.Run(() => QueryCoreAsync(path));
 
     private static async Task<FileLockResult> QueryCoreAsync(string path)
     {
-        var locks = new List<(string Path, string Owner, string Branch)>();
         var sync = new object();
-        string? queryError = null;
-        ulong? expectedCount = null;
-        using var globals = new LoreGlobalArgs { RepositoryPath = path };
-        using var query = new LoreLockFileQueryArgs();
-        await Lore.LockFileQuery(globals, query).Callback((ev, _) =>
-        {
-            if (ev.Tag == LoreEventTag.LOCK_FILE_QUERY_BEGIN)
-            {
-                var count = ev.GetData<LoreLockFileQueryBeginEventDataFFI>().Count;
-                lock (sync) expectedCount = count;
-            }
-            else if (ev.Tag == LoreEventTag.LOCK_FILE_QUERY)
-            {
-                var data = ev.GetData<LoreLockFileQueryEventDataFFI>();
-                lock (sync) locks.Add((data.Path, data.Owner, Convert.ToHexString(data.Branch.Data)));
-            }
-            else if (ev.Tag == LoreEventTag.ERROR)
-            {
-                var message = ev.GetData<LoreErrorEventDataFFI>().ErrorInner;
-                lock (sync) queryError ??= message;
-            }
-        }).WaitAsync();
-        if (queryError is not null) throw new InvalidDataException($"ロック一覧を完全に取得できません: {queryError}");
-        if (expectedCount is null || expectedCount != (ulong)locks.Count)
-            throw new InvalidDataException("Loreからロック一覧を完全に取得できませんでした。");
+        using var globals = new LoreGlobalArgs { RepositoryPath = path, WorkingDirectory = Path.GetFullPath(path) };
+        var locks = await QueryEntriesAsync(globals);
 
         var names = new Dictionary<string, string>(StringComparer.Ordinal);
         string? warning = null;
@@ -96,5 +80,148 @@ public sealed class LoreFileLockService : IFileLockService
             warning = "一部の取得者名を確認できないため、ユーザーIDを表示しています。";
         return new FileLockResult(files.ToDictionary(entry => entry.Key,
             entry => (IReadOnlyList<FileLockOwner>)entry.Value.ToArray(), StringComparer.OrdinalIgnoreCase), warning);
+    }
+
+    private static async Task<List<(string Path, string Owner, string Branch)>> QueryEntriesAsync(
+        LoreGlobalArgs globals, string? owner = null)
+    {
+        var locks = new List<(string Path, string Owner, string Branch)>();
+        var sync = new object();
+        string? queryError = null;
+        ulong? expectedCount = null;
+        using var query = new LoreLockFileQueryArgs { Owner = owner ?? string.Empty };
+        await Lore.LockFileQuery(globals, query).Callback((ev, _) =>
+        {
+            if (ev.Tag == LoreEventTag.LOCK_FILE_QUERY_BEGIN)
+            {
+                var count = ev.GetData<LoreLockFileQueryBeginEventDataFFI>().Count;
+                lock (sync) expectedCount = count;
+            }
+            else if (ev.Tag == LoreEventTag.LOCK_FILE_QUERY)
+            {
+                var data = ev.GetData<LoreLockFileQueryEventDataFFI>();
+                lock (sync) locks.Add((data.Path, data.Owner, Convert.ToHexString(data.Branch.Data)));
+            }
+            else if (ev.Tag == LoreEventTag.ERROR)
+            {
+                var message = ev.GetData<LoreErrorEventDataFFI>().ErrorInner;
+                lock (sync) queryError ??= message;
+            }
+        }).WaitAsync();
+        if (queryError is not null) throw new InvalidDataException($"ロック一覧を完全に取得できません: {queryError}");
+        if (expectedCount is null || expectedCount != (ulong)locks.Count)
+            throw new InvalidDataException("Loreからロック一覧を完全に取得できませんでした。");
+
+        return locks;
+    }
+
+    public Task<IReadOnlyList<MyFileLock>> QueryMineAsync(string path) => Task.Run(async () =>
+    {
+        using var globals = new LoreGlobalArgs { RepositoryPath = path, WorkingDirectory = Path.GetFullPath(path) };
+        var owner = await ReadCurrentOwnerAsync(globals);
+        var entries = await QueryEntriesAsync(globals, owner);
+        if (entries.Any(entry => entry.Owner != owner))
+            throw new InvalidDataException("ロック一覧に別のユーザーのロックが含まれています。");
+        return (IReadOnlyList<MyFileLock>)entries.Select(entry =>
+        {
+            var fullPath = LoreFileStatusService.ResolvePath(path, entry.Path);
+            if (string.IsNullOrWhiteSpace(entry.Branch) || entry.Branch.All(c => c == '0'))
+                throw new InvalidDataException("ロックのブランチを確認できません。");
+            return new MyFileLock(fullPath, Path.GetRelativePath(path, fullPath), entry.Branch, owner);
+        }).OrderBy(entry => entry.RelativePath, StringComparer.OrdinalIgnoreCase).ThenBy(entry => entry.Branch).ToArray();
+    });
+
+    private static async Task<string> ReadCurrentOwnerAsync(LoreGlobalArgs globals)
+    {
+        var owners = new HashSet<string>(StringComparer.Ordinal);
+        string? error = null;
+        var sync = new object();
+        using var args = new LoreAuthLocalUserInfoArgs { WithAccessToken = true };
+        await Lore.AuthLocalUserInfo(globals, args).Callback((ev, _) =>
+        {
+            lock (sync)
+            {
+                if (ev.Tag == LoreEventTag.AUTH_IDENTITY)
+                    owners.Add(ev.GetData<LoreAuthIdentityEventDataFFI>().UserId);
+                else if (ev.Tag == LoreEventTag.ERROR)
+                    error ??= ev.GetData<LoreErrorEventDataFFI>().ErrorInner;
+            }
+        }).WaitAsync();
+        if (error is not null || owners.Count != 1 || string.IsNullOrWhiteSpace(owners.Single()))
+            throw new InvalidOperationException($"ログイン中のユーザーを確認できません。ログインし直してください。\n{error}");
+        return owners.Single();
+    }
+
+    public Task AcquireAsync(string path, string file) => Task.Run(async () =>
+    {
+        var fullPath = ResolveLockTarget(path, file);
+        var attributes = File.GetAttributes(fullPath);
+        if ((attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
+            throw new InvalidOperationException("通常のファイルだけをロックできます。");
+        using var globals = new LoreGlobalArgs { RepositoryPath = path, WorkingDirectory = Path.GetFullPath(path) };
+        using var args = new LoreLockFileAcquireArgs { Paths = [fullPath] };
+        string? error = null;
+        var completed = new List<string>();
+        var sync = new object();
+        await Lore.LockFileAcquire(globals, args).Callback((ev, _) =>
+        {
+            lock (sync)
+            {
+                if (ev.Tag == LoreEventTag.ERROR) error ??= ev.GetData<LoreErrorEventDataFFI>().ErrorInner;
+                else if (ev.Tag == LoreEventTag.LOCK_FILE_ACQUIRE)
+                    completed.Add(ev.GetData<LoreLockFileAcquireEventDataFFI>().Path);
+            }
+        }).WaitAsync();
+        if (error is not null || completed.Count != 1
+            || !string.Equals(fullPath, LoreFileStatusService.ResolvePath(path, completed[0]), StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"ロックの取得を確認できません。ロック一覧を再取得してください。\n{error}");
+    });
+
+    public Task ReleaseAsync(string path, MyFileLock fileLock) => Task.Run(async () =>
+    {
+        var fullPath = ResolveLockTarget(path, fileLock.FullPath);
+        var mine = await QueryMineAsync(path);
+        if (!mine.Any(entry => entry.OwnerId == fileLock.OwnerId && entry.Branch == fileLock.Branch
+            && string.Equals(entry.FullPath, fullPath, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("選択したロックは現在のユーザーのロックではありません。一覧を再取得してください。");
+        using var globals = new LoreGlobalArgs { RepositoryPath = path, WorkingDirectory = Path.GetFullPath(path) };
+        using var args = new LoreLockFileReleaseArgs
+        {
+            Paths = [fullPath], Branch = fileLock.Branch, OwnerId = fileLock.OwnerId
+        };
+        string? error = null;
+        var completed = new List<string>();
+        var sync = new object();
+        await Lore.LockFileRelease(globals, args).Callback((ev, _) =>
+        {
+            lock (sync)
+            {
+                if (ev.Tag == LoreEventTag.ERROR) error ??= ev.GetData<LoreErrorEventDataFFI>().ErrorInner;
+                else if (ev.Tag == LoreEventTag.LOCK_FILE_RELEASE)
+                    completed.Add(ev.GetData<LoreLockFileReleaseEventDataFFI>().Path);
+            }
+        }).WaitAsync();
+        if (error is not null || completed.Count != 1
+            || !string.Equals(fullPath, LoreFileStatusService.ResolvePath(path, completed[0]), StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"ロックの解除を確認できません。一覧を再取得してください。\n{error}");
+    });
+
+    private static string ResolveLockTarget(string root, string file)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(file);
+        var relative = Path.IsPathFullyQualified(file) ? Path.GetRelativePath(root, file) : file;
+        var fullPath = LoreFileStatusService.ResolvePath(root, relative);
+        var segments = Path.GetRelativePath(root, fullPath).Split(Path.DirectorySeparatorChar);
+        if (segments.Any(segment => segment.Equals(".lore", StringComparison.OrdinalIgnoreCase)) || relative == ".")
+            throw new InvalidDataException("Loreの管理領域やルートフォルダーはロック対象にできません。");
+        var current = Path.GetFullPath(root);
+        foreach (var segment in segments)
+        {
+            current = Path.Combine(current, segment);
+            if ((File.Exists(current) || Directory.Exists(current))
+                && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("リンクを含むパスはロック操作の対象にできません。");
+        }
+        return fullPath;
     }
 }

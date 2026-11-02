@@ -97,9 +97,16 @@
                     </StackPanel>
                 </DockPanel>
                 <TreeView x:Name="FileTree" Grid.Row="1" AutomationProperties.Name="ローカルフォルダー"
+                          PreviewMouseDown="FileTree_PreviewMouseDown"
+                          ContextMenuOpening="FileTree_ContextMenuOpening"
                           VirtualizingStackPanel.IsVirtualizing="True"
                           VirtualizingStackPanel.VirtualizationMode="Recycling"
                           ScrollViewer.CanContentScroll="True">
+                    <TreeView.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem x:Name="AcquireFileLockMenu" Header="ロック" Click="AcquireFileLock_Click" />
+                        </ContextMenu>
+                    </TreeView.ContextMenu>
                     <TreeView.Resources>
                         <Style TargetType="{x:Type TreeViewItem}">
                             <Setter Property="HeaderTemplate">
@@ -256,6 +263,35 @@
                                         <TextBlock Text="{Binding DisplayMessage}" TextWrapping="Wrap" />
                                         <TextBlock Text="{Binding DisplayAuthor}" />
                                         <TextBlock Text="{Binding Revision}" TextWrapping="Wrap" FontSize="10" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </TabItem>
+                <TabItem x:Name="FileLocksTab" Header="ロック一覧">
+                    <Grid Margin="8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <WrapPanel>
+                            <Button x:Name="RefreshMyLocksButton" Content="一覧取得" Padding="12,6" Margin="0,0,8,0"
+                                    Click="RefreshMyLocks_Click" />
+                            <Button x:Name="ReleaseMyLockButton" Content="選択したロックを解除" Padding="12,6"
+                                    Click="ReleaseMyLock_Click" />
+                        </WrapPanel>
+                        <TextBox x:Name="MyLocksStatusText" Grid.Row="1" Margin="0,8" TextWrapping="Wrap"
+                                 IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                                 Text="プロジェクトを切り替えてから一覧を取得してください。" />
+                        <ListBox x:Name="MyLocksList" Grid.Row="2" SelectionChanged="MyLocksList_SelectionChanged"
+                                 AutomationProperties.Name="自分のファイルロック" HorizontalContentAlignment="Stretch">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="2,4">
+                                        <TextBlock Text="{Binding RelativePath}" TextWrapping="Wrap" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding Branch, StringFormat=ブランチID: {0}}" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>

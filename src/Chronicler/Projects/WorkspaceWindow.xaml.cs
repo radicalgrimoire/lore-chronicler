@@ -27,6 +27,7 @@ public partial class WorkspaceWindow : Window
     private readonly IRevisionHistoryService historyService;
     private readonly IFileStatusService fileStatusService;
     private readonly IFileLockService fileLockService;
+    private readonly IFileLockActionsService fileLockActionsService;
     private readonly IStageService stageService;
     private readonly ICommitService commitService;
     private readonly IPushService pushService;
@@ -68,7 +69,8 @@ public partial class WorkspaceWindow : Window
         IBranchService? branchService = null, IRevisionHistoryService? historyService = null,
         IFileStatusService? fileStatusService = null, IFileLockService? fileLockService = null,
         IStageService? stageService = null, ICommitService? commitService = null, IPushService? pushService = null,
-        IAuthenticationStatusService? authenticationStatusService = null)
+        IAuthenticationStatusService? authenticationStatusService = null,
+        IFileLockActionsService? fileLockActionsService = null)
     {
         this.server = server;
         this.store = store;
@@ -79,6 +81,7 @@ public partial class WorkspaceWindow : Window
         this.historyService = historyService ?? new LoreRevisionHistoryService();
         this.fileStatusService = fileStatusService ?? new LoreFileStatusService();
         this.fileLockService = fileLockService ?? new LoreFileLockService();
+        this.fileLockActionsService = fileLockActionsService ?? new LoreFileLockService();
         this.stageService = stageService ?? new LoreStageService();
         this.commitService = commitService ?? new LoreCommitService();
         this.pushService = pushService ?? new LorePushService();
@@ -156,6 +159,7 @@ public partial class WorkspaceWindow : Window
         CommitButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
             && !busy && !fileStatusRunning && fileStatus is { UnresolvedConflictCount: 0 }
             && fileStatus.StagedCount > 0 && !string.IsNullOrWhiteSpace(CommitMessageText.Text);
+        UpdateFileLockControls();
     }
 
     private void SetActiveProject(ProjectProfile? project)
@@ -350,6 +354,7 @@ public partial class WorkspaceWindow : Window
 
     private void ShowProjectTree()
     {
+        InvalidateMyLocks();
         fileStatusVersion++;
         lockVersion++;
         fileStatus = null;
@@ -712,6 +717,7 @@ public partial class WorkspaceWindow : Window
 
     private void LoadPendingFileStatus()
     {
+        LoadMyLocksIfVisible();
         LoadPendingLocks();
         if (closed || busy || fileStatusRunning || !fileStatusNeedsRefresh
             || activeProject is not { CloneState: ProjectCloneState.Ready } project) return;
@@ -1160,7 +1166,11 @@ public partial class WorkspaceWindow : Window
 
     private void WorkspaceTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (e.Source == WorkspaceTabs) LoadHistoryIfVisible();
+        if (e.Source == WorkspaceTabs)
+        {
+            LoadHistoryIfVisible();
+            LoadMyLocksIfVisible();
+        }
     }
 
     private void LoadHistoryIfVisible()
@@ -1387,6 +1397,7 @@ public partial class WorkspaceWindow : Window
         closed = true;
         authenticationStatusVersion++;
         authenticationStatusTimer.Stop();
+        myLocksVersion++;
         historyVersion++;
         lockVersion++;
         treeCancellation.Cancel();

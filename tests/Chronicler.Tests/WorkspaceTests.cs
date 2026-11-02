@@ -55,7 +55,7 @@ public sealed class WorkspaceTests : IDisposable
             var stage = Control<TabItem>(window, "StageTab");
             var log = Control<TabItem>(window, "UpdateLogTab");
             var list = Control<ListBox>(window, "ProjectList");
-            Assert.Equal(3, tabs.Items.Count);
+            Assert.Equal(4, tabs.Items.Count);
             Assert.Same(projects, tabs.SelectedItem);
             Assert.Equal("プロジェクト", projects.Header);
             Assert.Equal("変更", stage.Header);
