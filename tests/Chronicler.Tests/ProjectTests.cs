@@ -287,6 +287,73 @@ public sealed class ProjectTests : IDisposable
     }
 
     [Fact]
+    public void ShortcutSelectionUsesUrlAndKeepsManualAndProjectCandidates()
+    {
+        RunSta(() =>
+        {
+            var store = new ProjectSettingsStore(SettingsPath);
+            store.Load();
+            store.Save([
+                new ProjectProfile(Guid.NewGuid(), "One", server.Id, server.RemoteUrl, "repo", Path.Combine(directory, "one")),
+                new ProjectProfile(Guid.NewGuid(), "Two", Guid.NewGuid(), "lore://other.example", "repo", Path.Combine(directory, "two"))
+            ]);
+            var shortcuts = new ServerSettingsStore(Path.Combine(directory, "servers.json"));
+            shortcuts.Load();
+            shortcuts.Save([new ServerProfile(Guid.NewGuid(), "Work", server.RemoteUrl)]);
+            var service = new FakeRepositoryService();
+            string? authUrl = null;
+            var window = new ProjectWindow(server, store, service, (_, _) => true,
+                new FakeProjectRepositoryInfo(), url => { authUrl = url; return true; }, shortcuts);
+            window.Show();
+            var input = Control<ComboBox>(window, "ServerUrlInput");
+            Assert.Equal(2, input.Items.Count);
+            Assert.Equal($"Work（{server.RemoteUrl}）", input.Items[0].ToString());
+            input.SelectedIndex = 0;
+            Assert.Equal($"Work（{server.RemoteUrl}）", input.Text);
+            Click(window, "FetchButton");
+            PumpDispatcher();
+            Assert.Equal(server.RemoteUrl, authUrl);
+            Assert.Equal(server.RemoteUrl, service.ListedServerUrl);
+            input.Text = "lore://manual.example";
+            Assert.Null(input.SelectedItem);
+            Assert.Empty(Control<ListBox>(window, "RepositoryList").Items);
+            Click(window, "FetchButton");
+            PumpDispatcher();
+            Assert.Equal("lore://manual.example", service.ListedServerUrl);
+            input.SelectedIndex = 0;
+            Assert.Equal($"Work（{server.RemoteUrl}）", input.Text);
+            Assert.Empty(Control<ListBox>(window, "RepositoryList").Items);
+            Click(window, "FetchButton");
+            PumpDispatcher();
+            Assert.Equal(server.RemoteUrl, service.ListedServerUrl);
+            Control<ListBox>(window, "RepositoryList").SelectedIndex = 0;
+            Control<TextBox>(window, "LocalPath").Text = Path.Combine(directory, "clone");
+            Click(window, "CreateButton");
+            Assert.Equal(server.RemoteUrl, window.CreatedProject!.ServerUrl);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void InvalidShortcutsDoNotBlockManualServerEntry()
+    {
+        RunSta(() =>
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(Path.Combine(directory, "servers.json"), "{");
+            var service = new FakeRepositoryService();
+            var window = CreateWindow(service);
+            Assert.Contains("ショートカットを読み込めません", Control<TextBlock>(window, "StatusText").Text);
+            Control<ComboBox>(window, "ServerUrlInput").Text = "lore://manual.example";
+            Click(window, "FetchButton");
+            PumpDispatcher();
+            Assert.Equal("lore://manual.example", service.ListedServerUrl);
+            Assert.Equal("{", File.ReadAllText(Path.Combine(directory, "servers.json")));
+            window.Close();
+        });
+    }
+
+    [Fact]
     public void ServerUrlCanBeEnteredWithoutSavedProjects()
     {
         RunSta(() =>

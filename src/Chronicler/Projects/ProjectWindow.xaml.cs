@@ -29,7 +29,7 @@ public partial class ProjectWindow : Window
 
     public ProjectWindow(ServerProfile server, ProjectSettingsStore store, IRepositoryService repositoryService,
         Func<string, string, bool>? confirm = null, IProjectRepositoryInfo? repositoryInfo = null,
-        Func<string, bool>? authenticate = null)
+        Func<string, bool>? authenticate = null, ServerSettingsStore? serverStore = null)
     {
         this.store = store;
         this.repositoryService = repositoryService;
@@ -41,15 +41,27 @@ public partial class ProjectWindow : Window
         ServerUrlInput.Text = server.RemoteUrl;
         try
         {
-            var servers = new List<string>();
+            var servers = new List<object>();
+            string? serverSettingsError = null;
+            try
+            {
+                serverStore ??= new ServerSettingsStore(Path.Combine(store.DirectoryPath, "servers.json"));
+                foreach (var shortcut in serverStore.Load().OrderBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase))
+                    servers.Add(new ServerShortcutOption(shortcut.Name, shortcut.RemoteUrl));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+            {
+                serverSettingsError = $"接続先ショートカットを読み込めません。ファイルは変更されていません。\n{ex.Message}";
+            }
             foreach (var project in store.Load().OrderBy(project => project.ServerUrl, StringComparer.OrdinalIgnoreCase))
             {
-                if (!servers.Any(url => ProjectRepositoryInfo.SameServer(url, project.ServerUrl)))
+                if (!servers.Any(item => ProjectRepositoryInfo.SameServer(
+                    item is ServerShortcutOption shortcut ? shortcut.Url : (string)item, project.ServerUrl)))
                     servers.Add(project.ServerUrl);
             }
             ServerUrlInput.ItemsSource = servers;
             available = true;
-            StatusText.Text = "フォルダーを指定してください。";
+            StatusText.Text = serverSettingsError ?? "フォルダーを指定してください。";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
         {
@@ -73,7 +85,8 @@ public partial class ProjectWindow : Window
             StatusText.Text = "フォルダーのサーバーURLを読み取り中です。完了までお待ちください。";
             return;
         }
-        var url = ServerUrlInput.Text.Trim();
+        var url = ServerUrlInput.SelectedItem is ServerShortcutOption shortcut
+            && ServerUrlInput.Text == shortcut.ToString() ? shortcut.Url : ServerUrlInput.Text.Trim();
         if (!ServerProfileValidator.TryValidate("server", url, out var error))
         {
             StatusText.Text = error;
@@ -322,4 +335,9 @@ public partial class ProjectWindow : Window
     }
 
     private void Window_Closed(object? sender, EventArgs e) => closed = true;
+
+    private sealed record ServerShortcutOption(string Name, string Url)
+    {
+        public override string ToString() => $"{Name}（{Url}）";
+    }
 }

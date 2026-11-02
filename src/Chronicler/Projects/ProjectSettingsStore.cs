@@ -7,6 +7,8 @@ namespace Chronicler.Projects;
 public sealed class ProjectSettingsStore(string filePath)
 {
     private readonly AtomicSettingsFile<ProjectSettings> file = new(filePath);
+    public string DirectoryPath => Path.GetDirectoryName(filePath)
+        ?? throw new InvalidOperationException("プロジェクト設定の保存先が不正です。");
     public static string DefaultPath => Path.Combine(
         Path.GetDirectoryName(ServerSettingsStore.DefaultPath)!, "projects.json");
 

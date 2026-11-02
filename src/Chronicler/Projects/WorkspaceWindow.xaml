@@ -142,6 +142,8 @@
                         <WrapPanel Margin="0,0,0,10">
                             <Button x:Name="CreateProjectButton" Content="新規プロジェクト" Padding="12,6" Margin="0,0,8,0"
                                     Click="CreateProjectButton_Click" />
+                            <Button x:Name="ManageServersButton" Content="接続先を管理" Padding="12,6" Margin="0,0,8,0"
+                                    Click="ManageServersButton_Click" />
                             <Button x:Name="SwitchProjectButton" Content="プロジェクトを切り替え" Padding="12,6" Margin="0,0,8,0"
                                     Click="SwitchProjectButton_Click" />
                             <Button x:Name="RenameProjectButton" Content="名前を変更" Padding="12,6" Margin="0,0,8,0"

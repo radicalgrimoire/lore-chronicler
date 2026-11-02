@@ -117,6 +117,7 @@ public partial class WorkspaceWindow : Window
     {
         var selected = ProjectList.SelectedItem is ProjectProfile;
         CreateProjectButton.IsEnabled = available && !busy;
+        ManageServersButton.IsEnabled = !busy;
         RenameProjectButton.IsEnabled = available && selected && !busy;
         LoginButton.IsEnabled = available && selected && !busy;
         SwitchProjectButton.IsEnabled = available && selected && !busy;
@@ -179,6 +180,13 @@ public partial class WorkspaceWindow : Window
         {
             SwitchProject(window.CreatedProject);
         }
+    }
+
+    private void ManageServersButton_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new ServerShortcutsWindow(new ServerSettingsStore(
+            Path.Combine(store.DirectoryPath, "servers.json"))) { Owner = this };
+        window.ShowDialog();
     }
 
     private void SwitchProjectButton_Click(object sender, RoutedEventArgs e)
