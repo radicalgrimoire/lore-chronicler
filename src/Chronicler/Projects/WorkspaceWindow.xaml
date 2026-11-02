@@ -43,7 +43,12 @@
         <Border Background="#F1F3F5" Padding="16,10">
             <DockPanel>
                 <TextBlock Text="Chronicler" FontSize="20" FontWeight="SemiBold" DockPanel.Dock="Left" />
-                <TextBlock x:Name="ServerText" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <TextBlock x:Name="ServerText" HorizontalAlignment="Right" />
+                    <TextBlock x:Name="AuthenticationStatusText" Text="認証状態: プロジェクトを選択してください。"
+                               HorizontalAlignment="Right" Margin="0,4,0,0" TextWrapping="Wrap" Foreground="DimGray"
+                               AutomationProperties.Name="認証状態" />
+                </StackPanel>
             </DockPanel>
         </Border>
         <Border Grid.Row="1" Background="#F1F3F5" Padding="12,4,12,8">

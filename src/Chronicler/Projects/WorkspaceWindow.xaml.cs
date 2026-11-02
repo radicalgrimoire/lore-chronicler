@@ -7,6 +7,8 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Threading;
 using Chronicler.Servers;
 using Chronicler.Authentication;
 using LoreVcs;
@@ -28,6 +30,8 @@ public partial class WorkspaceWindow : Window
     private readonly IStageService stageService;
     private readonly ICommitService commitService;
     private readonly IPushService pushService;
+    private readonly IAuthenticationStatusService authenticationStatusService;
+    private readonly DispatcherTimer authenticationStatusTimer = new() { Interval = TimeSpan.FromMinutes(1) };
     private readonly Func<string, string, bool> confirm;
     private readonly Func<string, string?> selectProjectName;
     private readonly Func<string, bool> authenticate;
@@ -50,6 +54,7 @@ public partial class WorkspaceWindow : Window
     private int lockVersion;
     private bool lockNeedsRefresh;
     private IReadOnlyDictionary<string, IReadOnlyList<FileLockOwner>>? fileLocks;
+    private int authenticationStatusVersion;
 
     public WorkspaceWindow() : this(new ServerProfile(Guid.NewGuid(), "server", string.Empty),
         new ProjectSettingsStore(ProjectSettingsStore.DefaultPath), new LoreRepositoryService())
@@ -62,7 +67,8 @@ public partial class WorkspaceWindow : Window
         Func<string, string?>? selectProjectName = null, Func<string, bool>? authenticate = null,
         IBranchService? branchService = null, IRevisionHistoryService? historyService = null,
         IFileStatusService? fileStatusService = null, IFileLockService? fileLockService = null,
-        IStageService? stageService = null, ICommitService? commitService = null, IPushService? pushService = null)
+        IStageService? stageService = null, ICommitService? commitService = null, IPushService? pushService = null,
+        IAuthenticationStatusService? authenticationStatusService = null)
     {
         this.server = server;
         this.store = store;
@@ -76,6 +82,7 @@ public partial class WorkspaceWindow : Window
         this.stageService = stageService ?? new LoreStageService();
         this.commitService = commitService ?? new LoreCommitService();
         this.pushService = pushService ?? new LorePushService();
+        this.authenticationStatusService = authenticationStatusService ?? new LoreAuthenticationStatusService();
         this.confirm = confirm ?? ((message, title) =>
             MessageBox.Show(this, message, title, MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes);
         InitializeComponent();
@@ -92,6 +99,9 @@ public partial class WorkspaceWindow : Window
         ProjectList.ItemsSource = projects;
         ReloadProjects();
         UpdateControls();
+        authenticationStatusTimer.Tick += async (_, _) => await RefreshAuthenticationStatusAsync();
+        Loaded += (_, _) => authenticationStatusTimer.Start();
+        Activated += async (_, _) => await RefreshAuthenticationStatusAsync();
     }
 
     private void ReloadProjects(Guid? selectedId = null)
@@ -166,12 +176,58 @@ public partial class WorkspaceWindow : Window
         UpdateControls();
     }
 
-    private void ProjectList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void ProjectList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         ProjectDetails.Text = ProjectList.SelectedItem is ProjectProfile project
             ? $"サーバー: {project.ServerUrl}\nリポジトリ: {project.RepositoryName}\nフォルダー: {project.LocalPath}"
             : string.Empty;
         UpdateControls();
+        await RefreshAuthenticationStatusAsync();
+    }
+
+    private async Task RefreshAuthenticationStatusAsync()
+    {
+        var version = ++authenticationStatusVersion;
+        if (closed) return;
+        AuthenticationStatusText.Foreground = Brushes.DimGray;
+        AuthenticationStatusText.ToolTip = "保存済み認証情報の期限（日本時間）です。サーバーへの接続確認は行いません。";
+        if (ProjectList.SelectedItem is not ProjectProfile project)
+        {
+            AuthenticationStatusText.Text = "認証状態: プロジェクトを選択してください。";
+            return;
+        }
+        AuthenticationStatusText.ToolTip = $"プロジェクト: {project.Name}\n{AuthenticationStatusText.ToolTip}";
+        if (project.CloneState != ProjectCloneState.Ready)
+        {
+            AuthenticationStatusText.Text = "認証状態: 初回取得後に確認できます。";
+            return;
+        }
+        AuthenticationStatusText.Text = "認証状態を確認しています…";
+        try
+        {
+            var repositoryId = project.RepositoryId
+                ?? (await repositoryInfo.ReadLocalAsync(project.LocalPath)).RepositoryId;
+            var status = await authenticationStatusService.ReadAsync(repositoryId);
+            if (closed || version != authenticationStatusVersion) return;
+            var now = DateTimeOffset.UtcNow;
+            AuthenticationStatusText.Text = status.GetText(now);
+            AuthenticationStatusText.Foreground = !status.HasIdentity || status.ExpiresAt <= now
+                ? Brushes.Firebrick : status.ExpiresAt is null ? Brushes.DimGray : Brushes.DarkGreen;
+        }
+        catch (LoreError ex)
+        {
+            if (closed || version != authenticationStatusVersion) return;
+            AuthenticationStatusText.Text = $"認証状態を確認できません（Loreエラー {ex.ReturnCode}）。";
+            AuthenticationStatusText.Foreground = Brushes.Firebrick;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+            or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException
+            or OverflowException)
+        {
+            if (closed || version != authenticationStatusVersion) return;
+            AuthenticationStatusText.Text = $"認証状態を確認できません: {ex.Message}";
+            AuthenticationStatusText.Foreground = Brushes.Firebrick;
+        }
     }
 
     private void CreateProjectButton_Click(object sender, RoutedEventArgs e)
@@ -1043,13 +1099,14 @@ public partial class WorkspaceWindow : Window
         UpdateControls();
     }
 
-    private void LoginButton_Click(object sender, RoutedEventArgs e)
+    private async void LoginButton_Click(object sender, RoutedEventArgs e)
     {
         if (ProjectList.SelectedItem is ProjectProfile project)
         {
             StatusText.Text = authenticate(project.ServerUrl)
                 ? "認証操作が終了しました。必要に応じて操作をやり直してください。"
                 : "ログインを中止しました。";
+            await RefreshAuthenticationStatusAsync();
         }
     }
 
@@ -1063,6 +1120,7 @@ public partial class WorkspaceWindow : Window
         {
             if (!authenticateAutomatically(project.ServerUrl))
                 throw;
+            _ = RefreshAuthenticationStatusAsync();
             return await operation();
         }
     }
@@ -1327,6 +1385,8 @@ public partial class WorkspaceWindow : Window
     private void Window_Closed(object? sender, EventArgs e)
     {
         closed = true;
+        authenticationStatusVersion++;
+        authenticationStatusTimer.Stop();
         historyVersion++;
         lockVersion++;
         treeCancellation.Cancel();
