@@ -44,6 +44,7 @@ public sealed class FileLockWindowTests : IDisposable
             var file = WaitForChild(folder, "asset.txt");
             Assert.Empty(AutomationProperties.GetHelpText(folder));
             Assert.NotEqual("変更あり", AutomationProperties.GetItemStatus(file));
+            Assert.Empty(Control<TextBox>(window, "LockStatusText").Text);
             var icon = FindText(file, "🔒");
             Assert.NotNull(icon);
             Assert.Equal(Visibility.Visible, icon.Visibility);
@@ -66,6 +67,7 @@ public sealed class FileLockWindowTests : IDisposable
             Assert.NotNull(icon);
             Assert.Equal(Visibility.Collapsed, icon.Visibility);
             Assert.NotEqual("変更あり", AutomationProperties.GetItemStatus(file));
+            Assert.Empty(Control<TextBox>(window, "LockStatusText").Text);
             Assert.Equal([project.LocalPath, project.LocalPath], service.Paths);
             window.Close();
         });

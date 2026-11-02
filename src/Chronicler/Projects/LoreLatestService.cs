@@ -21,6 +21,7 @@ public interface ILatestBackend
 
 public interface ILatestService
 {
+    Task EnsureRemoteAuthorizedAsync(string path);
     Task<LatestStatus> GetLatestAsync(string path, IProgress<string> progress);
 }
 
@@ -30,13 +31,16 @@ public sealed class LoreLatestService(ILatestBackend? backend = null) : ILatestS
 {
     private readonly ILatestBackend backend = backend ?? new LoreLatestBackend();
 
+    public async Task EnsureRemoteAuthorizedAsync(string path)
+    {
+        var status = await backend.ReadStatusAsync(path);
+        ValidateRemoteAccess(status);
+    }
+
     public async Task<LatestStatus> GetLatestAsync(string path, IProgress<string> progress)
     {
         var status = await backend.ReadStatusAsync(path);
-        if (!status.RemoteAvailable || !status.RemoteAuthorized)
-        {
-            throw new LatestSyncException("サーバーのリビジョンを確認できません。接続、ログイン状態、アクセス権を確認してください。");
-        }
+        ValidateRemoteAccess(status);
         if (!status.RemoteBranchExists)
         {
             throw new LatestSyncException("現在のブランチがサーバーに存在しません。");
@@ -74,6 +78,14 @@ public sealed class LoreLatestService(ILatestBackend? backend = null) : ILatestS
             throw new LatestSyncException("更新中に競合が発生しました。ローカルの状態を確認してください。");
         }
         return status;
+    }
+
+    private static void ValidateRemoteAccess(LatestStatus status)
+    {
+        if (!status.RemoteAvailable)
+            throw new LatestSyncException("サーバーのリビジョンを確認できません。接続、ログイン状態、アクセス権を確認してください。");
+        if (!status.RemoteAuthorized)
+            throw new RemoteAuthenticationRequiredException("サーバーへのログインが必要です。");
     }
 }
 

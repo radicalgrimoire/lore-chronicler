@@ -18,7 +18,7 @@ public sealed class WorkspaceTests : IDisposable
         IBranchService? branchService = null, IRevisionHistoryService? historyService = null,
         IFileStatusService? fileStatusService = null, IFileLockService? fileLockService = null) =>
         new(server, store, repositoryService, confirm, latestService, repositoryInfo, selectProjectName,
-            authenticate, branchService, historyService, fileStatusService ?? new FakeFileStatusService(),
+            authenticate, branchService ?? new FakeBranchService(), historyService, fileStatusService ?? new FakeFileStatusService(),
             fileLockService ?? new FakeFileLockService());
 
     [Fact]
@@ -120,7 +120,7 @@ public sealed class WorkspaceTests : IDisposable
             list.SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
             Assert.Equal("First", Control<TextBlock>(window, "ActiveProjectText").Text);
-            Assert.Equal("First", Assert.IsType<TreeViewItem>(tree.Items[0]).Header);
+            Assert.Equal("first (ローカル)", Assert.IsType<TreeViewItem>(tree.Items[0]).Header);
             Assert.True(refresh.IsEnabled);
             Assert.True(getLatest.IsEnabled);
             Assert.True(push.IsEnabled);
@@ -128,7 +128,7 @@ public sealed class WorkspaceTests : IDisposable
             list.SelectedIndex = 1;
             Click(window, "SwitchProjectButton");
             Assert.Equal("Second", Control<TextBlock>(window, "ActiveProjectText").Text);
-            Assert.Equal("Second", Assert.IsType<TreeViewItem>(tree.Items[0]).Header);
+            Assert.Equal("second (ローカル)", Assert.IsType<TreeViewItem>(tree.Items[0]).Header);
             WaitForChildren(tree, "second.txt");
             var root = Assert.IsType<TreeViewItem>(tree.Items[0]);
             Assert.DoesNotContain(root.Items.Cast<TreeViewItem>(),
@@ -318,7 +318,9 @@ public sealed class WorkspaceTests : IDisposable
             var clone = new FakeCloneService();
             var latest = new FakeLatestService();
             var info = new FakeProjectRepositoryInfo();
-            var window = CreateWorkspaceWindow(server, store, clone, (_, _) => true, latest, info);
+            var branches = new FakeBranchService();
+            var window = CreateWorkspaceWindow(server, store, clone, (_, _) => true, latest, info,
+                branchService: branches);
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
             Assert.False(Directory.Exists(path));
@@ -334,10 +336,48 @@ public sealed class WorkspaceTests : IDisposable
             Assert.Equal("Project", saved.Name);
             Assert.Equal("Project", Control<TextBlock>(window, "ActiveProjectText").Text);
             Assert.Equal(info.RepositoryId, saved.RepositoryId);
+            Assert.Contains("main", Control<TextBlock>(window, "CurrentBranchText").Text);
+            Assert.Equal(1, branches.ListCalls);
             Click(window, "GetLatestButton");
             Assert.Equal(path, latest.Path);
             latest.Completion.SetResult(new LatestStatus("main", "abc", "abc", true, true, true, false, false));
             PumpDispatcher();
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void LatestAutomaticallyAuthenticatesAndRetriesOnce()
+    {
+        RunSta(() =>
+        {
+            var path = CreateRepository("latest-auth", "keep.txt");
+            var store = new ProjectSettingsStore(Path.Combine(directory, "projects.json"));
+            store.Load();
+            var info = new FakeProjectRepositoryInfo();
+            store.Save([new ProjectProfile(Guid.NewGuid(), "Project", server.Id, server.RemoteUrl, "repo", path, info.RepositoryId)]);
+            var authorizationChecks = 0;
+            var latest = new FakeLatestService
+            {
+                EnsureRemoteAuthorized = _ => ++authorizationChecks == 1
+                    ? Task.FromException(new RemoteAuthenticationRequiredException("認証が必要です。"))
+                    : Task.CompletedTask,
+                GetLatest = (_, _) => Task.FromResult(new LatestStatus("main", "local", "remote", true, true, true, false, true))
+            };
+            var authenticationCalls = 0;
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
+                latestService: latest, repositoryInfo: info, authenticate: _ =>
+                {
+                    authenticationCalls++;
+                    return true;
+                });
+            Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
+            Click(window, "SwitchProjectButton");
+            Click(window, "GetLatestButton");
+            Assert.Equal(1, authenticationCalls);
+            Assert.Equal(2, authorizationChecks);
+            Assert.Equal(1, latest.GetLatestCalls);
+            Assert.Contains("更新しました", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }
@@ -507,7 +547,10 @@ public sealed class WorkspaceTests : IDisposable
             Assert.False(Control<Button>(window, "RefreshBranchesButton").IsEnabled);
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
+            Assert.Contains("main", Control<TextBlock>(window, "CurrentBranchText").Text);
+            Assert.Equal(1, branches.ListCalls);
             Click(window, "RefreshBranchesButton");
+            Assert.Equal(2, branches.ListCalls);
             Assert.Contains("main", Control<TextBlock>(window, "CurrentBranchText").Text);
             var list = Control<ComboBox>(window, "BranchList");
             Assert.Equal(2, list.Items.Count);
@@ -522,6 +565,27 @@ public sealed class WorkspaceTests : IDisposable
             Assert.Contains("切り替えました", Control<TextBlock>(window, "StatusText").Text);
             Assert.True(Control<Button>(window, "SwitchProjectButton").IsEnabled);
             Assert.Equal([path, path], fileStatus.Paths);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void ProjectSwitchReportsWhenCurrentBranchCannotBeRead()
+    {
+        RunSta(() =>
+        {
+            var path = CreateRepository("branch-unavailable", "keep.txt");
+            var store = new ProjectSettingsStore(Path.Combine(directory, "projects.json"));
+            store.Load();
+            var info = new FakeProjectRepositoryInfo();
+            store.Save([new ProjectProfile(Guid.NewGuid(), "Project", server.Id, server.RemoteUrl, "repo", path, info.RepositoryId)]);
+            var branches = new FakeBranchService { ListFailure = new IOException("branch unavailable") };
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), repositoryInfo: info,
+                branchService: branches);
+            Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
+            Click(window, "SwitchProjectButton");
+            Assert.Equal("ブランチ: 確認できません", Control<TextBlock>(window, "CurrentBranchText").Text);
+            Assert.Contains("branch unavailable", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }
@@ -549,7 +613,7 @@ public sealed class WorkspaceTests : IDisposable
             PumpDispatcher();
             Assert.Contains("一部変更", Control<TextBlock>(window, "StatusText").Text);
             Assert.Contains("main", Control<TextBlock>(window, "CurrentBranchText").Text);
-            Assert.Equal(2, branches.ListCalls);
+            Assert.Equal(3, branches.ListCalls);
             window.Close();
         });
     }
@@ -666,12 +730,14 @@ public sealed class WorkspaceTests : IDisposable
         private readonly BranchEntry feature = new("22222222222222222222222222222222", "feature", true, true, false);
         public BranchEntry? Switched { get; private set; }
         public bool RemoteAvailable { get; init; } = true;
+        public Exception? ListFailure { get; init; }
         public int ListCalls { get; private set; }
         public TaskCompletionSource Completion { get; } = new();
 
         public Task<BranchListResult> ListAsync(string path)
         {
             ListCalls++;
+            if (ListFailure is { } failure) return Task.FromException<BranchListResult>(failure);
             var switched = Completion.Task.IsCompletedSuccessfully;
             return Task.FromResult(new BranchListResult(
                 [main with { IsCurrent = !switched }, feature with { IsCurrent = switched }], RemoteAvailable));
@@ -687,12 +753,19 @@ public sealed class WorkspaceTests : IDisposable
     private sealed class FakeLatestService : ILatestService
     {
         public string? Path { get; private set; }
+        public Func<string, Task>? EnsureRemoteAuthorized { get; init; }
+        public Func<string, IProgress<string>, Task<LatestStatus>>? GetLatest { get; init; }
+        public int GetLatestCalls { get; private set; }
         public TaskCompletionSource<LatestStatus> Completion { get; } = new();
+
+        public Task EnsureRemoteAuthorizedAsync(string path) =>
+            EnsureRemoteAuthorized?.Invoke(path) ?? Task.CompletedTask;
 
         public Task<LatestStatus> GetLatestAsync(string path, IProgress<string> progress)
         {
             Path = path;
-            return Completion.Task;
+            GetLatestCalls++;
+            return GetLatest?.Invoke(path, progress) ?? Completion.Task;
         }
     }
 }

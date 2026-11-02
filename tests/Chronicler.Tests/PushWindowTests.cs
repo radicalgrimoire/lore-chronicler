@@ -108,7 +108,35 @@ public sealed class PushWindowTests : IDisposable
         });
     }
 
-    private WorkspaceWindow CreateWindow(IPushService service, Func<string, string, bool> confirm)
+    [Fact]
+    public void PushAutomaticallyAuthenticatesBeforeConfirmationAndRetriesPreflight()
+    {
+        RunSta(() =>
+        {
+            var prepareCalls = 0;
+            var authenticationCalls = 0;
+            var service = new FakePushService
+            {
+                Prepare = () => ++prepareCalls == 1
+                    ? Task.FromException<LatestStatus>(new RemoteAuthenticationRequiredException("サーバーへのログインが必要です。"))
+                    : Task.FromResult(Status)
+            };
+            var window = CreateWindow(service, (_, _) => true, _ =>
+            {
+                authenticationCalls++;
+                return true;
+            });
+            SelectProject(window);
+            Click(window, "PushButton");
+            Assert.Equal(1, authenticationCalls);
+            Assert.Equal(2, prepareCalls);
+            Assert.Equal(1, service.Pushes);
+            window.Close();
+        });
+    }
+
+    private WorkspaceWindow CreateWindow(IPushService service, Func<string, string, bool> confirm,
+        Func<string, bool>? authenticate = null)
     {
         var path = Path.Combine(directory, "repo");
         Directory.CreateDirectory(Path.Combine(path, ".lore"));
@@ -118,7 +146,7 @@ public sealed class PushWindowTests : IDisposable
         store.Save([project]);
         var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), confirm,
             repositoryInfo: repositoryInfo, fileStatusService: new FakeFileStatusService(),
-            fileLockService: new FakeFileLockService(), pushService: service);
+            authenticate: authenticate, fileLockService: new FakeFileLockService(), pushService: service);
         window.Show();
         return window;
     }
@@ -139,12 +167,14 @@ public sealed class PushWindowTests : IDisposable
     private sealed class FakePushService : IPushService
     {
         public Exception? PrepareError { get; init; }
+        public Func<Task<LatestStatus>>? Prepare { get; init; }
         public Task Pending { get; init; } = Task.CompletedTask;
         public bool Verified { get; init; } = true;
         public int Pushes { get; private set; }
         public int Verifications { get; private set; }
-        public Task<LatestStatus> PrepareAsync(string path) => PrepareError is null
-            ? Task.FromResult(Status) : Task.FromException<LatestStatus>(PrepareError);
+        public Task<LatestStatus> PrepareAsync(string path) => Prepare is not null
+            ? Prepare()
+            : PrepareError is null ? Task.FromResult(Status) : Task.FromException<LatestStatus>(PrepareError);
         public Task PushAsync(string path, LatestStatus expected, IProgress<string> progress)
         {
             Assert.Equal(Status, expected);

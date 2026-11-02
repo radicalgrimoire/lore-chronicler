@@ -58,7 +58,11 @@ public sealed class LorePushService(IPushBackend? backend = null) : IPushService
     private static void Validate(LatestStatus status)
     {
         if (!status.RemoteAvailable || !status.RemoteAuthorized)
+        {
+            if (status.RemoteAvailable && !status.RemoteAuthorized)
+                throw new RemoteAuthenticationRequiredException("サーバーへのログインが必要です。");
             throw new PushException("サーバーの状態を確認できません。接続、ログイン状態、アクセス権を確認してください。");
+        }
         if (string.IsNullOrWhiteSpace(status.Branch) || status.Branch.Contains('@')
             || string.IsNullOrWhiteSpace(status.LocalRevision) || status.LocalRevision.All(c => c == '0'))
             throw new PushException("プッシュするブランチまたはリビジョンを確認できません。");

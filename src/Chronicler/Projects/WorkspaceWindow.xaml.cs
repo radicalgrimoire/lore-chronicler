@@ -31,6 +31,7 @@ public partial class WorkspaceWindow : Window
     private readonly Func<string, string, bool> confirm;
     private readonly Func<string, string?> selectProjectName;
     private readonly Func<string, bool> authenticate;
+    private readonly Func<string, bool> authenticateAutomatically;
     private readonly ObservableCollection<ProjectProfile> projects = [];
     private readonly Dictionary<Guid, string> commitDrafts = [];
     private readonly HashSet<string> collapsedChangeFolders = new(StringComparer.OrdinalIgnoreCase);
@@ -85,6 +86,8 @@ public partial class WorkspaceWindow : Window
             return dialog.ShowDialog() == true ? dialog.ProjectName : null;
         });
         this.authenticate = authenticate ?? (url => new LoginWindow(url) { Owner = this }.ShowDialog() == true);
+        authenticateAutomatically = authenticate
+            ?? (url => new LoginWindow(url, autoStart: true) { Owner = this }.ShowDialog() == true);
         ServerText.Text = "サーバー: 未選択";
         ProjectList.ItemsSource = projects;
         ReloadProjects();
@@ -267,7 +270,9 @@ public partial class WorkspaceWindow : Window
             ActiveProjectText.Text = project.Name;
             Title = $"Chronicler - {project.Name}";
             ShowProjectTree();
-            StatusText.Text = $"プロジェクト「{project.Name}」に切り替えました。表示はローカルファイルです。";
+            var branchStatus = await RefreshBranchesAsync(project);
+            StatusText.Text = $"プロジェクト「{project.Name}」に切り替えました。表示はローカルファイルです。"
+                + (branchStatus is null or "ブランチ一覧を取得しました。" ? string.Empty : $"\n{branchStatus}");
         }
         catch (LoreError ex)
         {
@@ -312,7 +317,8 @@ public partial class WorkspaceWindow : Window
         {
             return;
         }
-        var root = CreateDirectoryItem(activeProject.Name, activeProject.LocalPath);
+        var localFolderName = Path.GetFileName(Path.TrimEndingDirectorySeparator(activeProject.LocalPath));
+        var root = CreateDirectoryItem($"{localFolderName} (ローカル)", activeProject.LocalPath);
         FileTree.Items.Add(root);
         root.IsExpanded = true;
         LoadPendingFileStatus();
@@ -677,9 +683,7 @@ public partial class WorkspaceWindow : Window
             if (!IsCurrent()) return;
             fileLocks = result.Files;
             foreach (var root in FileTree.Items.OfType<TreeViewItem>()) UpdateTreeItem(root);
-            LockStatusText.Text = result.Warning is null
-                ? "ロック状態を表示しています（前回の確認時点）。"
-                : $"ロック状態を表示しています（前回の確認時点）。\n{result.Warning}";
+            LockStatusText.Text = result.Warning ?? string.Empty;
         }
         catch (LoreError ex)
         {
@@ -742,12 +746,16 @@ public partial class WorkspaceWindow : Window
             ReadLoreAttributes(project.LocalPath);
             var local = await repositoryInfo.ReadLocalAsync(project.LocalPath);
             ProjectRepositoryInfo.Validate(local, project.ServerUrl, project.RepositoryId);
-            var remote = await repositoryInfo.ReadRemoteAsync(project.LocalPath);
-            ProjectRepositoryInfo.ValidateRemote(local, remote);
-            if (!string.Equals(remote.Name, project.RepositoryName, StringComparison.Ordinal))
-                throw new InvalidOperationException("サーバーのリポジトリ名が登録情報と一致しません。再登録してください。");
-            ProjectRepositoryInfo.Validate(await repositoryInfo.ReadLocalAsync(project.LocalPath), project.ServerUrl, local.RepositoryId);
-            var status = await pushService.PrepareAsync(project.LocalPath);
+            var status = await RetryAfterAuthenticationAsync(project, async () =>
+            {
+                var status = await pushService.PrepareAsync(project.LocalPath);
+                var remote = await repositoryInfo.ReadRemoteAsync(project.LocalPath);
+                ProjectRepositoryInfo.ValidateRemote(local, remote);
+                if (!string.Equals(remote.Name, project.RepositoryName, StringComparison.Ordinal))
+                    throw new InvalidOperationException("サーバーのリポジトリ名が登録情報と一致しません。再登録してください。");
+                ProjectRepositoryInfo.Validate(await repositoryInfo.ReadLocalAsync(project.LocalPath), project.ServerUrl, local.RepositoryId);
+                return status;
+            });
             if (!confirm($"プロジェクト: {project.Name}\nサーバー: {project.ServerUrl}\nリポジトリ: {project.RepositoryName}\nブランチ: {status.Branch}\nローカルのリビジョン: {status.LocalRevision}\n\nコミット済みの履歴を送信します。未コミットの変更は送信しません。リンク先やレイヤーのリポジトリも送信される場合があります。\nサーバーにブランチがない場合や削除済みの場合は、作成または復元されることがあります。\n\nプッシュを開始しますか？", "プッシュの確認"))
             {
                 StatusText.Text = "プッシュを中止しました。";
@@ -769,6 +777,10 @@ public partial class WorkspaceWindow : Window
         catch (PushException ex)
         {
             StatusText.Text = ex.Message;
+        }
+        catch (RemoteAuthenticationRequiredException)
+        {
+            StatusText.Text = "サーバーの認証を確認できません。ログイン状態とアクセス権を確認してください。";
         }
         catch (LoreError ex)
         {
@@ -867,7 +879,9 @@ public partial class WorkspaceWindow : Window
                 InvalidateHistory();
                 ReloadProjects(completed.Id);
                 ShowProjectTree();
-                StatusText.Text = "初回取得が完了しました。";
+                var branchStatus = await RefreshBranchesAsync(completed);
+                StatusText.Text = "初回取得が完了しました。"
+                    + (branchStatus is null or "ブランチ一覧を取得しました。" ? string.Empty : $"\n{branchStatus}");
             }
             catch (LoreError ex)
             {
@@ -896,6 +910,11 @@ public partial class WorkspaceWindow : Window
         var syncStarted = false;
         try
         {
+            await RetryAfterAuthenticationAsync(project, async () =>
+            {
+                await latestService.EnsureRemoteAuthorizedAsync(project.LocalPath);
+                return true;
+            });
             ReadLoreAttributes(project.LocalPath);
             var local = await repositoryInfo.ReadLocalAsync(project.LocalPath);
             ProjectRepositoryInfo.Validate(local, project.ServerUrl, project.RepositoryId);
@@ -905,9 +924,14 @@ public partial class WorkspaceWindow : Window
             ProjectRepositoryInfo.Validate(checkedLocal, project.ServerUrl, project.RepositoryId);
             var progress = new Progress<string>(message => { if (busy) StatusText.Text = message; });
             syncStarted = true;
-            var status = await latestService.GetLatestAsync(project.LocalPath, progress);
+            var status = await RetryAfterAuthenticationAsync(project,
+                () => latestService.GetLatestAsync(project.LocalPath, progress));
             ClearBranches();
             StatusText.Text = $"ブランチ「{status.Branch}」を、サーバーで確認したリビジョンに更新しました。";
+        }
+        catch (RemoteAuthenticationRequiredException)
+        {
+            StatusText.Text = "サーバーの認証を確認できません。ログイン状態とアクセス権を確認してください。";
         }
         catch (LatestSyncException ex)
         {
@@ -1029,6 +1053,20 @@ public partial class WorkspaceWindow : Window
         }
     }
 
+    private async Task<T> RetryAfterAuthenticationAsync<T>(ProjectProfile project, Func<Task<T>> operation)
+    {
+        try
+        {
+            return await operation();
+        }
+        catch (RemoteAuthenticationRequiredException)
+        {
+            if (!authenticateAutomatically(project.ServerUrl))
+                throw;
+            return await operation();
+        }
+    }
+
     private static FileAttributes ReadLoreAttributes(string path)
     {
         try
@@ -1144,29 +1182,42 @@ public partial class WorkspaceWindow : Window
         BranchList.SelectedItem = current.Length == 1 ? current[0] : null;
     }
 
-    private async void RefreshBranchesButton_Click(object sender, RoutedEventArgs e)
+    private async Task<string?> RefreshBranchesAsync(ProjectProfile project)
     {
-        if (busy || activeProject is not { CloneState: ProjectCloneState.Ready } project) return;
-        busy = true;
         ClearBranches();
-        UpdateControls();
-        StatusText.Text = "ブランチ一覧を取得しています…";
         try
         {
             var result = await ReadBranchesAsync(project);
+            if (closed || activeProject?.Id != project.Id) return null;
             DisplayBranches(result);
-            StatusText.Text = result.RemoteAvailable
+            return result.RemoteAvailable
                 ? "ブランチ一覧を取得しました。"
                 : "ローカルのブランチを表示しています。サーバーの一覧は取得できませんでした。接続、ログイン状態、アクセス権を確認してください。";
         }
         catch (LoreError ex)
         {
-            StatusText.Text = $"ブランチ一覧を取得できません（Loreエラー {ex.ReturnCode}）。";
+            if (!closed && activeProject?.Id == project.Id)
+                CurrentBranchText.Text = "ブランチ: 確認できません";
+            return $"ブランチ一覧を取得できません（Loreエラー {ex.ReturnCode}）。";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
-            or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+            or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException or JsonException)
         {
-            StatusText.Text = $"ブランチ一覧を取得できません: {ex.Message}";
+            if (!closed && activeProject?.Id == project.Id)
+                CurrentBranchText.Text = "ブランチ: 確認できません";
+            return $"ブランチ一覧を取得できません: {ex.Message}";
+        }
+    }
+
+    private async void RefreshBranchesButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (busy || activeProject is not { CloneState: ProjectCloneState.Ready } project) return;
+        busy = true;
+        UpdateControls();
+        StatusText.Text = "ブランチ一覧を取得しています…";
+        try
+        {
+            StatusText.Text = await RefreshBranchesAsync(project) ?? StatusText.Text;
         }
         finally
         {

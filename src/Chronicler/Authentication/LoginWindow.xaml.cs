@@ -12,13 +12,18 @@ public partial class LoginWindow : Window
     private bool busy;
     private string? loginUrl;
 
-    public LoginWindow(string serverUrl, ILoginService? service = null, ILoginBrowser? browser = null)
+    public LoginWindow(string serverUrl, ILoginService? service = null, ILoginBrowser? browser = null,
+        bool autoStart = false)
     {
         this.serverUrl = serverUrl;
         this.service = service ?? new LoreLoginService();
         this.browser = browser ?? new LoginBrowser();
         InitializeComponent();
         ServerText.Text = $"サーバー: {serverUrl}";
+        if (autoStart)
+        {
+            Loaded += (_, _) => Login_Click(this, new RoutedEventArgs());
+        }
     }
 
     private async void Login_Click(object sender, RoutedEventArgs e)

@@ -45,7 +45,6 @@ public sealed class PushServiceTests
         foreach (var status in new[]
         {
             Safe with { RemoteAvailable = false },
-            Safe with { RemoteAuthorized = false },
             Safe with { RemoteAhead = true },
             Safe with { RemoteAhead = true, LocalAhead = false },
             Safe with { Branch = "" },
@@ -59,6 +58,15 @@ public sealed class PushServiceTests
             await Assert.ThrowsAsync<PushException>(() => new LorePushService(backend).PrepareAsync("repo"));
             Assert.Empty(backend.Pushes);
         }
+    }
+
+    [Fact]
+    public async Task ReportsWhenRemoteAuthenticationIsRequired()
+    {
+        var backend = new FakeBackend { Status = Safe with { RemoteAuthorized = false } };
+        await Assert.ThrowsAsync<RemoteAuthenticationRequiredException>(
+            () => new LorePushService(backend).PrepareAsync("repo"));
+        Assert.Empty(backend.Pushes);
     }
 
     [Fact]

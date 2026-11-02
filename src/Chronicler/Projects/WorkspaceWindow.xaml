@@ -76,7 +76,6 @@
                     <Button x:Name="OpenFolderButton" Content="フォルダーを開く" DockPanel.Dock="Right"
                             Padding="10,4" Click="OpenFolderButton_Click" />
                     <StackPanel>
-                        <TextBlock Text="ローカルファイル" FontWeight="SemiBold" />
                         <TextBlock x:Name="ActiveProjectText" Text="プロジェクトが選択されていません" Margin="0,4,0,0" />
                         <TextBox x:Name="LockStatusText" Text="ロック状態は未取得です。" Margin="0,4,0,0"
                                  IsReadOnly="True" BorderThickness="0" Background="Transparent" Padding="0"
@@ -92,7 +91,7 @@
                         </WrapPanel>
                     </StackPanel>
                 </DockPanel>
-                <TreeView x:Name="FileTree" Grid.Row="1" AutomationProperties.Name="ローカルファイル"
+                <TreeView x:Name="FileTree" Grid.Row="1" AutomationProperties.Name="ローカルフォルダー"
                           VirtualizingStackPanel.IsVirtualizing="True"
                           VirtualizingStackPanel.VirtualizationMode="Recycling"
                           ScrollViewer.CanContentScroll="True">

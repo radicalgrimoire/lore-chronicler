@@ -288,6 +288,7 @@ public sealed class RevisionHistoryWindowTests : IDisposable
     {
         public bool Completed { get; set; }
         public TaskCompletionSource<LatestStatus> Completion { get; } = new();
+        public Task EnsureRemoteAuthorizedAsync(string path) => Task.CompletedTask;
         public Task<LatestStatus> GetLatestAsync(string path, IProgress<string> progress) => Completion.Task;
     }
 

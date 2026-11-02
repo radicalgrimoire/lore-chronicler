@@ -29,7 +29,19 @@ public sealed class LatestServiceTests
     public async Task RefusesUnverifiedOrDivergentHistory(bool remoteAuthorized, bool localAhead)
     {
         var backend = new FakeBackend { Status = SafeStatus with { RemoteAuthorized = remoteAuthorized, LocalAhead = localAhead } };
-        await Assert.ThrowsAsync<LatestSyncException>(() => new LoreLatestService(backend).GetLatestAsync("repo", Progress));
+        if (!remoteAuthorized)
+            await Assert.ThrowsAsync<RemoteAuthenticationRequiredException>(() => new LoreLatestService(backend).GetLatestAsync("repo", Progress));
+        else
+            await Assert.ThrowsAsync<LatestSyncException>(() => new LoreLatestService(backend).GetLatestAsync("repo", Progress));
+        Assert.Null(backend.Target);
+    }
+
+    [Fact]
+    public async Task ReportsAuthenticationRequirementBeforeStartingSync()
+    {
+        var backend = new FakeBackend { Status = SafeStatus with { RemoteAuthorized = false } };
+        await Assert.ThrowsAsync<RemoteAuthenticationRequiredException>(
+            () => new LoreLatestService(backend).EnsureRemoteAuthorizedAsync("repo"));
         Assert.Null(backend.Target);
     }
 
