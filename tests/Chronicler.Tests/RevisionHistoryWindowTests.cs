@@ -1,5 +1,7 @@
 using System.IO;
+using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using Chronicler.Projects;
 using Chronicler.Servers;
 using static Chronicler.Tests.MainWindowTests;
@@ -11,6 +13,144 @@ public sealed class RevisionHistoryWindowTests : IDisposable
     private readonly string directory = Path.Combine(Path.GetTempPath(), "Chronicler.Tests", Guid.NewGuid().ToString("N"));
     private readonly ServerProfile server = new(Guid.NewGuid(), "Server", "lore://localhost:41337");
     private readonly FakeProjectRepositoryInfo repositoryInfo = new();
+
+    [Fact]
+    public void RightClickOpensSelectedRevisionAndRetryShowsErrorsAndChanges()
+    {
+        RunSta(() =>
+        {
+            var project = CreateProject("first");
+            var first = Entry("first");
+            var second = new RevisionHistoryEntry(2, new string('B', 64), "second", "user", null);
+            var history = new FakeHistoryService
+            {
+                Read = _ => Task.FromResult<IReadOnlyList<RevisionHistoryEntry>>([first, second])
+            };
+            var delayed = new TaskCompletionSource<IReadOnlyList<RevisionChange>>();
+            var changes = new FakeRevisionChangesService { Read = (_, _) => delayed.Task };
+            var diffs = new FakeFileDiffService();
+            var window = CreateWindow(CreateStore(project), history, changes: changes, diffs: diffs);
+            window.Show();
+            SelectProject(window, 0);
+            SelectTab(window, "UpdateLogTab");
+            var list = Control<ListBox>(window, "RevisionHistoryList");
+            Assert.False(Control<Button>(window, "ShowRevisionChangesButton").IsEnabled);
+            list.SelectedIndex = 0;
+            list.UpdateLayout();
+            var item = Assert.IsType<ListBoxItem>(list.ItemContainerGenerator.ContainerFromIndex(1));
+            list.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Right)
+            {
+                RoutedEvent = UIElement.PreviewMouseRightButtonDownEvent,
+                Source = item
+            });
+            Assert.Same(second, list.SelectedItem);
+            var menu = Assert.IsType<MenuItem>(list.ContextMenu.Items[0]);
+            menu.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            PumpDispatcher();
+            var details = Assert.Single(window.OwnedWindows.OfType<RevisionChangesWindow>());
+            Assert.Equal([(project.LocalPath, second.Revision)], changes.Requests);
+            Assert.Contains("second", Control<TextBlock>(details, "RevisionMessage").Text);
+            Assert.Contains(second.Revision, Control<TextBlock>(details, "RevisionId").Text);
+            Assert.Contains("Loading", Control<TextBox>(details, "ChangesStatus").Text);
+            Assert.False(Control<Button>(details, "RetryButton").IsEnabled);
+            delayed.SetException(new IOException("offline"));
+            PumpDispatcher();
+            Assert.Contains("offline", Control<TextBox>(details, "ChangesStatus").Text);
+            Assert.True(Control<Button>(details, "RetryButton").IsEnabled);
+            var entry = new RevisionChange("folder/file.txt", ChangeAction.Added, true, null);
+            changes.Read = (_, _) => Task.FromResult<IReadOnlyList<RevisionChange>>([entry]);
+            Click(details, "RetryButton");
+            PumpDispatcher();
+            Assert.Equal(entry, Assert.Single(Control<ListBox>(details, "RevisionChangesList").Items.Cast<RevisionChange>()));
+            Assert.Contains("1 changes", Control<TextBox>(details, "ChangesStatus").Text);
+            Control<ListBox>(details, "RevisionChangesList").SelectedItem = entry;
+            Click(details, "ShowFileDiffButton");
+            PumpDispatcher();
+            var diff = Assert.Single(details.OwnedWindows.OfType<FileDiffWindow>());
+            Assert.Equal((project.LocalPath, second.Revision, entry), Assert.Single(diffs.Requests));
+            Assert.Contains("-before", Control<TextBox>(diff, "DiffText").Text);
+            Assert.Contains("+after", Control<TextBox>(diff, "DiffText").Text);
+            diff.Close();
+            details.Close();
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void ClosedDetailsIgnoreLateResults()
+    {
+        RunSta(() =>
+        {
+            var pending = new TaskCompletionSource<IReadOnlyList<RevisionChange>>();
+            var details = new RevisionChangesWindow("Project", Entry("message"), () => pending.Task);
+            details.Show();
+            PumpDispatcher();
+            var status = Control<TextBox>(details, "ChangesStatus").Text;
+            details.Close();
+            pending.SetResult([new RevisionChange("file", ChangeAction.Added, true, null)]);
+            PumpDispatcher();
+            Assert.Empty(Control<ListBox>(details, "RevisionChangesList").Items);
+            Assert.Equal(status, Control<TextBox>(details, "ChangesStatus").Text);
+        });
+    }
+
+    [Fact]
+    public void DetailsVerifyRepositoryBeforeLoadingAndAllowRetry()
+    {
+        RunSta(() =>
+        {
+            var project = CreateProject("first");
+            var history = new FakeHistoryService
+            {
+                Read = _ => Task.FromResult<IReadOnlyList<RevisionHistoryEntry>>([Entry("message")])
+            };
+            var changes = new FakeRevisionChangesService();
+            var window = CreateWindow(CreateStore(project), history, changes: changes);
+            window.Show();
+            SelectProject(window, 0);
+            SelectTab(window, "UpdateLogTab");
+            Control<ListBox>(window, "RevisionHistoryList").SelectedIndex = 0;
+            repositoryInfo.RepositoryId = "ABCDEF1234567890ABCDEF1234567890";
+            Click(window, "ShowRevisionChangesButton");
+            PumpDispatcher();
+            var details = Assert.Single(window.OwnedWindows.OfType<RevisionChangesWindow>());
+            Assert.Empty(changes.Requests);
+            Assert.Contains("repository ID does not match", Control<TextBox>(details, "ChangesStatus").Text);
+            repositoryInfo.RepositoryId = project.RepositoryId!;
+            Click(details, "RetryButton");
+            PumpDispatcher();
+            Assert.Single(changes.Requests);
+            Assert.Contains("No changes", Control<TextBox>(details, "ChangesStatus").Text);
+            details.Close();
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void AuthorResolutionWarningKeepsHistoryVisible()
+    {
+        RunSta(() =>
+        {
+            var project = CreateProject("first");
+            var history = new FakeHistoryService
+            {
+                Read = _ => Task.FromResult<IReadOnlyList<RevisionHistoryEntry>>(
+                    [new RevisionHistoryEntry(1, "rev", "message", "User:abc", null,
+                        AuthorResolutionWarning: "directory unavailable")])
+            };
+            var window = CreateWindow(CreateStore(project), history);
+            window.Show();
+            SelectProject(window, 0);
+            SelectTab(window, "UpdateLogTab");
+
+            var entry = Assert.IsType<RevisionHistoryEntry>(
+                Assert.Single(Control<ListBox>(window, "RevisionHistoryList").Items));
+            Assert.Equal("User:abc", entry.DisplayAuthor);
+            Assert.Contains("directory unavailable", Control<TextBox>(window, "HistoryStatus").Text);
+            Assert.Contains("Unresolved author IDs are shown", Control<TextBox>(window, "HistoryStatus").Text);
+            window.Close();
+        });
+    }
 
     [Fact]
     public void TabLoadsOnDemandAndReportsEmptyErrorAndRefresh()
@@ -148,7 +288,6 @@ public sealed class RevisionHistoryWindowTests : IDisposable
             Click(window, "RefreshBranchesButton");
             PumpDispatcher();
             Control<ComboBox>(window, "BranchList").SelectedIndex = 1;
-            Click(window, "SwitchBranchButton");
             PumpDispatcher();
             Assert.Equal("feature", Assert.IsType<RevisionHistoryEntry>(
                 Assert.Single(Control<ListBox>(window, "RevisionHistoryList").Items)).Message);
@@ -230,10 +369,12 @@ public sealed class RevisionHistoryWindowTests : IDisposable
     }
 
     private WorkspaceWindow CreateWindow(ProjectSettingsStore store, FakeHistoryService history, IBranchService? branches = null,
-        ILatestService? latest = null, IRepositoryService? repositories = null) =>
+        ILatestService? latest = null, IRepositoryService? repositories = null, IRevisionChangesService? changes = null,
+        IFileDiffService? diffs = null) =>
         new(server, store, repositories ?? new UnusedRepositoryService(), (_, _) => true, latestService: latest,
             repositoryInfo: repositoryInfo, branchService: branches, historyService: history,
-            fileStatusService: new FakeFileStatusService(), fileLockService: new FakeFileLockService());
+            fileStatusService: new FakeFileStatusService(), fileLockService: new FakeFileLockService(),
+            revisionChangesService: changes, fileDiffService: diffs);
 
     private static void SelectProject(WorkspaceWindow window, int index)
     {
@@ -265,6 +406,32 @@ public sealed class RevisionHistoryWindowTests : IDisposable
         {
             Paths.Add(path);
             return Read(path);
+        }
+
+    }
+
+    private sealed class FakeRevisionChangesService : IRevisionChangesService
+    {
+        public List<(string, string)> Requests { get; } = [];
+        public Func<string, string, Task<IReadOnlyList<RevisionChange>>> Read { get; set; } =
+            (_, _) => Task.FromResult<IReadOnlyList<RevisionChange>>([]);
+
+        public Task<IReadOnlyList<RevisionChange>> ReadAsync(string path, string revision)
+        {
+            Requests.Add((path, revision));
+            return Read(path, revision);
+        }
+
+    }
+
+    private sealed class FakeFileDiffService : IFileDiffService
+    {
+        public List<(string Path, string Revision, RevisionChange Change)> Requests { get; } = [];
+
+        public Task<FileDiff> ReadAsync(string path, string revision, RevisionChange change)
+        {
+            Requests.Add((path, revision, change));
+            return Task.FromResult(new FileDiff("before\n", "after\n", "before.txt", "after.txt", true, null));
         }
     }
 

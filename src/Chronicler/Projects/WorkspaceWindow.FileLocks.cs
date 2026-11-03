@@ -34,9 +34,18 @@ public partial class WorkspaceWindow
     private void LoadMyLocksIfVisible()
     {
         if (!closed && !busy && !fileStatusRunning && !myLocksLoading && myLocksNeedRefresh
-            && WorkspaceTabs.SelectedItem == FileLocksTab
+            && WorkspaceTabs.SelectedItem == StageTab && MyLocksView.Visibility == Visibility.Visible
             && activeProject is { CloneState: ProjectCloneState.Ready } project)
             _ = LoadMyLocksAsync(project);
+    }
+
+    private void SwitchChangesViewButton_Click(object sender, RoutedEventArgs e)
+    {
+        var showLocks = MyLocksView.Visibility != Visibility.Visible;
+        ChangesView.Visibility = showLocks ? Visibility.Collapsed : Visibility.Visible;
+        MyLocksView.Visibility = showLocks ? Visibility.Visible : Visibility.Collapsed;
+        SwitchChangesViewButton.Content = showLocks ? "Back to Changes" : "Show My Locks";
+        if (showLocks) LoadMyLocksIfVisible();
     }
 
     private async Task LoadMyLocksAsync(ProjectProfile project)

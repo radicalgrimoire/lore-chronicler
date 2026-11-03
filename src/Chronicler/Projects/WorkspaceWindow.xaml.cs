@@ -26,6 +26,8 @@ public partial class WorkspaceWindow : Window
     private readonly IProjectRepositoryInfo repositoryInfo;
     private readonly IBranchService branchService;
     private readonly IRevisionHistoryService historyService;
+    private readonly IRevisionChangesService revisionChangesService;
+    private readonly IFileDiffService fileDiffService;
     private readonly IFileStatusService fileStatusService;
     private readonly IFileLockService fileLockService;
     private readonly IFileLockActionsService fileLockActionsService;
@@ -71,7 +73,9 @@ public partial class WorkspaceWindow : Window
         IFileStatusService? fileStatusService = null, IFileLockService? fileLockService = null,
         IStageService? stageService = null, ICommitService? commitService = null, IPushService? pushService = null,
         IAuthenticationStatusService? authenticationStatusService = null,
-        IFileLockActionsService? fileLockActionsService = null)
+        IFileLockActionsService? fileLockActionsService = null,
+        IRevisionChangesService? revisionChangesService = null,
+        IFileDiffService? fileDiffService = null)
     {
         this.server = server;
         this.store = store;
@@ -80,6 +84,8 @@ public partial class WorkspaceWindow : Window
         this.repositoryInfo = repositoryInfo ?? new ProjectRepositoryInfo();
         this.branchService = branchService ?? new LoreBranchService();
         this.historyService = historyService ?? new LoreRevisionHistoryService();
+        this.revisionChangesService = revisionChangesService ?? new LoreRevisionChangesService();
+        this.fileDiffService = fileDiffService ?? new LoreFileDiffService();
         this.fileStatusService = fileStatusService ?? new LoreFileStatusService();
         this.fileLockService = fileLockService ?? new LoreFileLockService();
         this.fileLockActionsService = fileLockActionsService ?? new LoreFileLockService();
@@ -145,10 +151,18 @@ public partial class WorkspaceWindow : Window
         OpenFolderButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready } && !busy;
         BranchList.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready } && !busy;
         RefreshBranchesButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready } && !busy;
-        SwitchBranchButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
-            && BranchList.SelectedItem is BranchEntry { IsCurrent: false } && !busy && !fileStatusRunning;
+        NewBranchNameText.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready } && !busy;
+        CreateBranchButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
+            && !busy && !string.IsNullOrWhiteSpace(NewBranchNameText.Text);
+        SwitchSelectedBranchButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
+            && !busy && !fileStatusRunning && BranchesList.SelectedItem is BranchEntry { IsCurrent: false };
+        DeleteBranchButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
+            && !busy && BranchesList.SelectedItem is BranchEntry { IsCurrent: false };
+        RefreshBranchesTabButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready } && !busy;
         RefreshHistoryButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
             && !busy && !historyLoading;
+        ShowRevisionChangesButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
+            && !busy && !historyLoading && RevisionHistoryList.SelectedItem is RevisionHistoryEntry;
         StageSelectionButton.IsEnabled = activeProject is { CloneState: ProjectCloneState.Ready }
             && !busy && !fileStatusRunning && fileStatus is not null
             && ChangeList.SelectedItems.OfType<StagedEntry>().Any(entry => entry.IsUnstaged);
@@ -1150,12 +1164,6 @@ public partial class WorkspaceWindow : Window
         }
     }
 
-    private void ClearBranches()
-    {
-        BranchList.ItemsSource = null;
-        CurrentBranchText.Text = "Branch:";
-    }
-
     private void InvalidateHistory()
     {
         historyVersion++;
@@ -1177,6 +1185,7 @@ public partial class WorkspaceWindow : Window
         {
             LoadHistoryIfVisible();
             LoadMyLocksIfVisible();
+            LoadBranchesIfVisible();
         }
     }
 
@@ -1186,6 +1195,22 @@ public partial class WorkspaceWindow : Window
             && WorkspaceTabs.SelectedItem == UpdateLogTab
             && activeProject is { CloneState: ProjectCloneState.Ready } project)
             _ = LoadHistoryAsync(project);
+    }
+
+    private void LoadBranchesIfVisible()
+    {
+        if (!closed && !busy && WorkspaceTabs.SelectedItem == BranchesTab
+            && BranchesList.ItemsSource is null
+            && activeProject is { CloneState: ProjectCloneState.Ready } project)
+            _ = LoadBranchesAsync(project);
+    }
+
+    private async Task LoadBranchesAsync(ProjectProfile project)
+    {
+        BranchesStatusText.Text = "Loading branches…";
+        var message = await RefreshBranchesAsync(project);
+        if (message is not null && message != BranchesLoadedMessage) StatusText.Text = message;
+        UpdateControls();
     }
 
     private void RefreshHistoryButton_Click(object sender, RoutedEventArgs e)
@@ -1217,6 +1242,10 @@ public partial class WorkspaceWindow : Window
             HistoryStatus.Text = entries.Count == 0
                 ? "No local revision history."
                 : $"Showing {entries.Count} revisions (maximum 100).";
+            var authorWarning = entries.Select(entry => entry.AuthorResolutionWarning)
+                .FirstOrDefault(warning => !string.IsNullOrWhiteSpace(warning));
+            if (authorWarning is not null)
+                HistoryStatus.Text += $"\nAuthor name lookup warning: {authorWarning} Unresolved author IDs are shown.";
         }
         catch (LoreError ex)
         {
@@ -1237,7 +1266,22 @@ public partial class WorkspaceWindow : Window
         }
     }
 
-    private void BranchList_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateControls();
+    private async void BranchList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        UpdateControls();
+        if (busy || fileStatusRunning || activeProject is not { CloneState: ProjectCloneState.Ready } project
+            || BranchList.SelectedItem is not BranchEntry { IsCurrent: false } branch)
+            return;
+
+        var source = branch.IsLocal ? "local revision" : "server revision";
+        if (!confirm($"Project: {project.Name}\nSwitch to: {branch.Name} ({source})\n\nFiles may be added, changed, or deleted. Switching fails if Lore cannot preserve uncommitted changes.\n\nSwitch branches?", "Switch branch"))
+        {
+            BranchList.SelectedItem = BranchList.Items.OfType<BranchEntry>().SingleOrDefault(entry => entry.IsCurrent);
+            return;
+        }
+
+        await SwitchBranchAsync(project, branch);
+    }
 
     private async Task<BranchListResult> ReadBranchesAsync(ProjectProfile project)
     {
@@ -1245,43 +1289,6 @@ public partial class WorkspaceWindow : Window
         var local = await repositoryInfo.ReadLocalAsync(project.LocalPath);
         ProjectRepositoryInfo.Validate(local, project.ServerUrl, project.RepositoryId);
         return await branchService.ListAsync(project.LocalPath);
-    }
-
-    private void DisplayBranches(BranchListResult result)
-    {
-        BranchList.ItemsSource = result.Branches;
-        var current = result.Branches.Where(branch => branch.IsCurrent).ToArray();
-        CurrentBranchText.Text = current.Length == 1
-            ? $"Branch: {current[0].Name}"
-            : "Branch:";
-        BranchList.SelectedItem = current.Length == 1 ? current[0] : null;
-    }
-
-    private async Task<string?> RefreshBranchesAsync(ProjectProfile project)
-    {
-        ClearBranches();
-        try
-        {
-            var result = await ReadBranchesAsync(project);
-            if (closed || activeProject?.Id != project.Id) return null;
-            DisplayBranches(result);
-            return result.RemoteAvailable
-                ? BranchesLoadedMessage
-                : "Showing local branches. Could not retrieve server branches; check connection, sign-in, and permissions.";
-        }
-        catch (LoreError ex)
-        {
-            if (!closed && activeProject?.Id == project.Id)
-                CurrentBranchText.Text = "Branch:";
-            return $"Could not retrieve branches (Lore error {ex.ReturnCode}).";
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
-            or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException or JsonException)
-        {
-            if (!closed && activeProject?.Id == project.Id)
-                CurrentBranchText.Text = "Branch:";
-            return $"Could not retrieve branches: {ex.Message}";
-        }
     }
 
     private async void RefreshBranchesButton_Click(object sender, RoutedEventArgs e)
@@ -1302,13 +1309,8 @@ public partial class WorkspaceWindow : Window
         }
     }
 
-    private async void SwitchBranchButton_Click(object sender, RoutedEventArgs e)
+    private async Task SwitchBranchAsync(ProjectProfile project, BranchEntry branch)
     {
-        if (busy || fileStatusRunning || activeProject is not { CloneState: ProjectCloneState.Ready } project
-            || BranchList.SelectedItem is not BranchEntry { IsCurrent: false } branch) return;
-        var source = branch.IsLocal ? "local revision" : "server revision";
-        if (!confirm($"Project: {project.Name}\nSwitch to: {branch.Name} ({source})\n\nFiles may be added, changed, or deleted. Switching fails if Lore cannot preserve uncommitted changes.\n\nSwitch branches?", "Switch branch"))
-            return;
         InvalidateHistory();
         busy = true;
         UpdateControls();

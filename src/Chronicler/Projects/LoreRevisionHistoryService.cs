@@ -6,10 +6,14 @@ using LoreVcs.Types.Events;
 
 namespace Chronicler.Projects;
 
-public sealed record RevisionHistoryEntry(ulong Number, string Revision, string? Message, string? Author, DateTimeOffset? Timestamp)
+public sealed record RevisionHistoryEntry(ulong Number, string Revision, string? Message, string? Author, DateTimeOffset? Timestamp,
+    string? AuthorName = null, string? AuthorResolutionWarning = null)
 {
     public string DisplayMessage => string.IsNullOrWhiteSpace(Message) ? "No message" : Message;
-    public string DisplayAuthor => string.IsNullOrWhiteSpace(Author) ? "Unknown author" : Author;
+    public string DisplayAuthor => !string.IsNullOrWhiteSpace(AuthorName) ? $"{AuthorName} ({Author})"
+        : string.IsNullOrWhiteSpace(Author) ? "Unknown author" : Author;
+    public string DisplayAuthorName => !string.IsNullOrWhiteSpace(AuthorName) ? AuthorName
+        : string.IsNullOrWhiteSpace(Author) ? "Unknown author" : Author;
     public string DisplayTimestamp => Timestamp?.ToLocalTime().ToString("yyyy/MM/dd HH:mm:ss") ?? "Unknown date";
 }
 
@@ -21,6 +25,12 @@ public interface IRevisionHistoryService
 public sealed class LoreRevisionHistoryService : IRevisionHistoryService
 {
     public const uint MaximumEntries = 100;
+    private readonly RevisionHistoryAuthorResolver authorResolver;
+
+    public LoreRevisionHistoryService(IUserNameService? userNames = null)
+    {
+        authorResolver = new RevisionHistoryAuthorResolver(userNames ?? new LoreUserNameService());
+    }
 
     public async Task<IReadOnlyList<RevisionHistoryEntry>> ReadAsync(string path)
     {
@@ -70,8 +80,31 @@ public sealed class LoreRevisionHistoryService : IRevisionHistoryService
 
         if (error is not null) throw new InvalidDataException(error);
         if (entries.Count > MaximumEntries) throw new InvalidDataException("Revision history exceeds the requested limit.");
-        return entries.Select(entry => new RevisionHistoryEntry(entry.Number, entry.Revision, entry.Message,
+        var history = entries.Select(entry => new RevisionHistoryEntry(entry.Number, entry.Revision, entry.Message,
             entry.CreatedBy ?? entry.CommittedBy, entry.Timestamp)).ToArray();
+        return await authorResolver.ResolveAsync(path, history);
+    }
+
+    public sealed class RevisionHistoryAuthorResolver(IUserNameService userNames)
+    {
+        public async Task<IReadOnlyList<RevisionHistoryEntry>> ResolveAsync(string path, IReadOnlyList<RevisionHistoryEntry> entries)
+        {
+            var ids = entries.Select(entry => entry.Author)
+                .Where(author => !string.IsNullOrWhiteSpace(author))
+                .Select(author => author!)
+                .Distinct(StringComparer.Ordinal).ToArray();
+            if (ids.Length == 0) return entries;
+
+            var result = await userNames.ResolveAsync(path, ids);
+            return entries.Select(entry =>
+            {
+                if (entry.Author is null || !ids.Contains(entry.Author, StringComparer.Ordinal)) return entry;
+                if (result.Names.TryGetValue(entry.Author, out var name) && !string.IsNullOrWhiteSpace(name)
+                    && !string.Equals(name, entry.Author, StringComparison.Ordinal))
+                    return entry with { AuthorName = name, AuthorResolutionWarning = result.Warning };
+                return entry with { AuthorResolutionWarning = result.Warning ?? "Some authors could not be resolved." };
+            }).ToArray();
+        }
     }
 
     private sealed class EntryBuilder(ulong number, string revision)

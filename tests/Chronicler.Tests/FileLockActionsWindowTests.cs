@@ -18,6 +18,56 @@ public sealed class FileLockActionsWindowTests : IDisposable
     private bool confirm = true;
 
     [Fact]
+    public void ChangesAndMyLocksSwitchWithoutLosingStateOrReloading()
+    {
+        RunSta(() =>
+        {
+            var project = CreateProject("first");
+            var entry = new MyFileLock(Path.Combine(project.LocalPath, "asset.txt"), "asset.txt", "branch", "me");
+            actions.Entries = [entry];
+            var window = CreateWindow(project);
+            window.Show();
+            SelectProject(window, 0);
+            var tabs = Control<TabControl>(window, "WorkspaceTabs");
+            tabs.SelectedItem = Control<TabItem>(window, "StageTab");
+            PumpDispatcher();
+            var changes = Control<Grid>(window, "ChangesView");
+            var locks = Control<Grid>(window, "MyLocksView");
+            var button = Control<Button>(window, "SwitchChangesViewButton");
+            var message = Control<TextBox>(window, "CommitMessageText");
+            var filter = Control<ComboBox>(window, "ChangeFilter");
+            var list = Control<ListBox>(window, "MyLocksList");
+            message.Text = "draft";
+            filter.SelectedIndex = 1;
+            Assert.True(changes.IsVisible);
+            Assert.False(locks.IsVisible);
+            Assert.Empty(actions.Queried);
+
+            Click(window, "SwitchChangesViewButton");
+            Assert.False(changes.IsVisible);
+            Assert.True(locks.IsVisible);
+            Assert.Equal("Back to Changes", button.Content);
+            Assert.Equal([project.LocalPath], actions.Queried);
+            list.SelectedIndex = 0;
+
+            Click(window, "SwitchChangesViewButton");
+            Assert.True(changes.IsVisible);
+            Assert.False(locks.IsVisible);
+            Assert.Equal("Show My Locks", button.Content);
+            Assert.Equal("draft", message.Text);
+            Assert.Equal(1, filter.SelectedIndex);
+            Click(window, "SwitchChangesViewButton");
+            Assert.Equal(entry, list.SelectedItem);
+            tabs.SelectedItem = Control<TabItem>(window, "UpdateLogTab");
+            tabs.SelectedItem = Control<TabItem>(window, "StageTab");
+            PumpDispatcher();
+            Assert.True(locks.IsVisible);
+            Assert.Equal([project.LocalPath], actions.Queried);
+            window.Close();
+        });
+    }
+
+    [Fact]
     public void AcquiresSelectedFileAndReleasesExactLockAfterConfirmation()
     {
         RunSta(() =>
@@ -47,7 +97,7 @@ public sealed class FileLockActionsWindowTests : IDisposable
             Assert.Equal(2, icons.Paths.Count);
             Assert.Single(Control<ListBox>(window, "MyLocksList").Items);
             Assert.Contains("Lock acquisition completed", Control<TextBlock>(window, "StatusText").Text);
-            Control<TabControl>(window, "WorkspaceTabs").SelectedItem = Control<TabItem>(window, "FileLocksTab");
+            ShowMyLocks(window);
             var list = Control<ListBox>(window, "MyLocksList");
             list.SelectedIndex = 0;
             Assert.True(Control<Button>(window, "ReleaseMyLockButton").IsEnabled);
@@ -66,7 +116,7 @@ public sealed class FileLockActionsWindowTests : IDisposable
     }
 
     [Fact]
-    public void TabQueriesOnlyActiveProjectAndIgnoresStaleResults()
+    public void ViewQueriesOnlyActiveProjectAndIgnoresStaleResults()
     {
         RunSta(() =>
         {
@@ -80,7 +130,7 @@ public sealed class FileLockActionsWindowTests : IDisposable
             window.Show();
             SelectProject(window, 0);
             Assert.Empty(actions.Queried);
-            Control<TabControl>(window, "WorkspaceTabs").SelectedItem = Control<TabItem>(window, "FileLocksTab");
+            ShowMyLocks(window);
             Assert.Equal([first.LocalPath], actions.Queried);
             Assert.False(Control<Button>(window, "RefreshMyLocksButton").IsEnabled);
             SelectProject(window, 1);
@@ -177,7 +227,7 @@ public sealed class FileLockActionsWindowTests : IDisposable
             var window = CreateWindow(project);
             window.Show();
             SelectProject(window, 0);
-            Control<TabControl>(window, "WorkspaceTabs").SelectedItem = Control<TabItem>(window, "FileLocksTab");
+            ShowMyLocks(window);
             var list = Control<ListBox>(window, "MyLocksList");
             list.SelectedIndex = 0;
             Click(window, "ReleaseMyLockButton");
@@ -199,7 +249,7 @@ public sealed class FileLockActionsWindowTests : IDisposable
             var window = CreateWindow(first, pending);
             window.Show();
             SelectProject(window, 0);
-            Control<TabControl>(window, "WorkspaceTabs").SelectedItem = Control<TabItem>(window, "FileLocksTab");
+            ShowMyLocks(window);
             Assert.Single(Control<ListBox>(window, "MyLocksList").Items);
             SelectProject(window, 1);
             Assert.Empty(Control<ListBox>(window, "MyLocksList").Items);
@@ -220,7 +270,7 @@ public sealed class FileLockActionsWindowTests : IDisposable
             actions.Query = _ => delayed.Task;
             var window = CreateWindow(project);
             SelectProject(window, 0);
-            Control<TabControl>(window, "WorkspaceTabs").SelectedItem = Control<TabItem>(window, "FileLocksTab");
+            ShowMyLocks(window);
             var before = Control<TextBox>(window, "MyLocksStatusText").Text;
             window.Close();
             delayed.SetResult([new MyFileLock(Path.Combine(project.LocalPath, "asset.txt"), "asset.txt", "branch", "me")]);
@@ -282,6 +332,12 @@ public sealed class FileLockActionsWindowTests : IDisposable
         Control<ListBox>(window, "ProjectList").SelectedIndex = index;
         Click(window, "SwitchProjectButton");
         PumpDispatcher();
+    }
+
+    private static void ShowMyLocks(WorkspaceWindow window)
+    {
+        Control<TabControl>(window, "WorkspaceTabs").SelectedItem = Control<TabItem>(window, "StageTab");
+        Click(window, "SwitchChangesViewButton");
     }
 
     private static TreeViewItem WaitForChild(TreeViewItem parent, string name)

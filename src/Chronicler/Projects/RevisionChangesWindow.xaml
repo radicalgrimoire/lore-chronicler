@@ -1,0 +1,54 @@
+<Window x:Class="Chronicler.Projects.RevisionChangesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Changed files" Width="720" Height="500" MinWidth="420" MinHeight="300"
+        WindowStartupLocation="CenterOwner" Loaded="Window_Loaded" Closed="Window_Closed">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <StackPanel>
+            <TextBlock x:Name="RevisionSummary" FontWeight="SemiBold" TextWrapping="Wrap" />
+            <TextBlock x:Name="RevisionMessage" Margin="0,6,0,0" TextWrapping="Wrap" />
+            <TextBlock x:Name="RevisionAuthor" Margin="0,4,0,0" TextWrapping="Wrap" />
+            <TextBlock x:Name="RevisionId" Margin="0,4,0,0" TextWrapping="Wrap" />
+            <TextBlock Text="Changes compared with the direct parent revision." Margin="0,6,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+        <TextBox x:Name="ChangesStatus" Grid.Row="1" Margin="0,8" TextWrapping="Wrap"
+                 IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                 MaxHeight="100" VerticalScrollBarVisibility="Auto" />
+        <ListBox x:Name="RevisionChangesList" Grid.Row="2" AutomationProperties.Name="Changed files"
+                 SelectionChanged="RevisionChangesList_SelectionChanged"
+                 PreviewMouseRightButtonDown="RevisionChangesList_PreviewMouseRightButtonDown"
+                 ContextMenuOpening="RevisionChangesList_ContextMenuOpening"
+                 HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling">
+            <ListBox.ContextMenu>
+                <ContextMenu>
+                    <MenuItem x:Name="ShowFileDiffMenu" Header="Show file diff" Click="ShowFileDiff_Click" />
+                </ContextMenu>
+            </ListBox.ContextMenu>
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <Grid Margin="2,3">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="90" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding ActionText}" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="1" Text="{Binding DisplayPath}" TextWrapping="Wrap" />
+                    </Grid>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button x:Name="ShowFileDiffButton" Content="Show file diff" Padding="12,6" Margin="0,0,8,0"
+                    Click="ShowFileDiff_Click" />
+            <Button x:Name="RetryButton" Content="Refresh" Padding="12,6" Margin="0,0,8,0" Click="Retry_Click" />
+            <Button Content="Close" Padding="12,6" IsCancel="True" Click="Close_Click" />
+        </StackPanel>
+    </Grid>
+</Window>

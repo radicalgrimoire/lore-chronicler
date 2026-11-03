@@ -8,6 +8,77 @@ namespace Chronicler.Tests;
 public sealed class RevisionHistoryServiceTests
 {
     [Fact]
+    public async Task ResolvesDistinctUserAuthorsAndPreservesOtherMetadata()
+    {
+        var users = new FakeUserNames(new UserNameResult(new Dictionary<string, string>
+        {
+            ["User:abc"] = "Alice",
+            ["User:def"] = "User:def"
+        }, "directory unavailable"));
+        var resolver = new LoreRevisionHistoryService.RevisionHistoryAuthorResolver(users);
+        RevisionHistoryEntry[] entries =
+        [
+            new(3, "r3", "third", "User:abc", null),
+            new(2, "r2", "second", "User:abc", null),
+            new(1, "r1", "first", "User:def", null),
+            new(0, "r0", "other", "Local author", null),
+            new(0, "r0", "missing", null, null),
+            new(0, "r0", "empty id", "User:", null)
+        ];
+
+        var result = await resolver.ResolveAsync("repo", entries);
+
+        Assert.Equal("repo", users.Path);
+        Assert.Equal(["User:abc", "User:def", "Local author", "User:"], users.Ids);
+        Assert.Equal("Alice (User:abc)", result[0].DisplayAuthor);
+        Assert.Equal("Alice", result[0].DisplayAuthorName);
+        Assert.Equal("Alice (User:abc)", result[1].DisplayAuthor);
+        Assert.Equal("directory unavailable", result[0].AuthorResolutionWarning);
+        Assert.Equal("User:def", result[2].DisplayAuthor);
+        Assert.Equal("directory unavailable", result[2].AuthorResolutionWarning);
+        Assert.Equal("Local author", result[3].DisplayAuthor);
+        Assert.Equal("Unknown author", result[4].DisplayAuthor);
+        Assert.Equal("User:", result[5].DisplayAuthor);
+        Assert.Equal(entries.Select(entry => entry.Revision), result.Select(entry => entry.Revision));
+    }
+
+    [Fact]
+    public async Task UnresolvedUsersRetainIdsAndReportWarning()
+    {
+        var users = new FakeUserNames(new UserNameResult(new Dictionary<string, string>(), null));
+        var result = await new LoreRevisionHistoryService.RevisionHistoryAuthorResolver(users).ResolveAsync("repo",
+            [new RevisionHistoryEntry(1, "rev", "message", "User:abc", null)]);
+
+        Assert.Equal("User:abc", result[0].DisplayAuthor);
+        Assert.Equal("Some authors could not be resolved.", result[0].AuthorResolutionWarning);
+    }
+
+    [Fact]
+    public async Task DoesNotContactUserServiceWhenThereAreNoUserIds()
+    {
+        var users = new FakeUserNames(new UserNameResult(new Dictionary<string, string>(), null));
+        var entries = new[] { new RevisionHistoryEntry(1, "rev", "message", null, null) };
+
+        var result = await new LoreRevisionHistoryService.RevisionHistoryAuthorResolver(users).ResolveAsync("repo", entries);
+
+        Assert.Same(entries, result);
+        Assert.Null(users.Path);
+    }
+
+    private sealed class FakeUserNames(UserNameResult result) : IUserNameService
+    {
+        public string? Path { get; private set; }
+        public IReadOnlyList<string> Ids { get; private set; } = [];
+
+        public Task<UserNameResult> ResolveAsync(string path, IReadOnlyList<string> userIds)
+        {
+            Path = path;
+            Ids = userIds;
+            return Task.FromResult(result);
+        }
+    }
+
+    [Fact]
     public async Task HistoryOfNewLocalRepositoryCanBeRead()
     {
         var path = Path.Combine(Path.GetTempPath(), "Chronicler.Tests", Guid.NewGuid().ToString("N"));

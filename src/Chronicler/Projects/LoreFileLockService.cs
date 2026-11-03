@@ -28,45 +28,14 @@ public sealed class LoreFileLockService : IFileLockService, IFileLockActionsServ
 
     private static async Task<FileLockResult> QueryCoreAsync(string path)
     {
-        var sync = new object();
         using var globals = new LoreGlobalArgs { RepositoryPath = path, WorkingDirectory = Path.GetFullPath(path) };
         var locks = await QueryEntriesAsync(globals);
 
-        var names = new Dictionary<string, string>(StringComparer.Ordinal);
-        string? warning = null;
         var owners = locks.Select(entry => entry.Owner).Where(owner => !string.IsNullOrWhiteSpace(owner))
             .Distinct(StringComparer.Ordinal).ToArray();
-        if (owners.Length > 0)
-        {
-            try
-            {
-                string? authError = null;
-                using var args = new LoreAuthUserInfoArgs { UserIds = owners };
-                await Lore.AuthUserInfo(globals, args).Callback((ev, _) =>
-                {
-                    if (ev.Tag == LoreEventTag.AUTH_USER_INFO)
-                    {
-                        var data = ev.GetData<LoreAuthUserInfoEventDataFFI>();
-                        lock (sync) names[data.Id] = data.Name;
-                    }
-                    else if (ev.Tag == LoreEventTag.ERROR)
-                    {
-                        var message = ev.GetData<LoreErrorEventDataFFI>().ErrorInner;
-                        lock (sync) authError ??= message;
-                    }
-                }).WaitAsync();
-                if (authError is not null) warning = $"Could not resolve some lock owners: {authError}";
-            }
-            catch (LoreError ex)
-            {
-                warning = $"Could not resolve lock owners (Lore error {ex.ReturnCode}): {ex.Message}";
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
-                or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
-            {
-                warning = $"Could not resolve lock owners: {ex.Message}";
-            }
-        }
+        var result = await new LoreUserNameService().ResolveAsync(path, owners);
+        var names = result.Names;
+        var warning = result.Warning is null ? null : $"Could not resolve lock owners: {result.Warning}";
 
         var files = new Dictionary<string, List<FileLockOwner>>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in locks)

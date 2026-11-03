@@ -70,6 +70,7 @@ public sealed class WorkspaceTests : IDisposable
             var projects = Control<TabItem>(window, "ProjectsTab");
             var stage = Control<TabItem>(window, "StageTab");
             var log = Control<TabItem>(window, "UpdateLogTab");
+            var branchesTab = Control<TabItem>(window, "BranchesTab");
             var list = Control<ListBox>(window, "ProjectList");
             var login = Control<Button>(window, "LoginButton");
             var manageServers = Control<Button>(window, "ManageServersButton");
@@ -82,6 +83,7 @@ public sealed class WorkspaceTests : IDisposable
             Assert.Equal("Projects", projects.Header);
             Assert.Equal("Changes", stage.Header);
             Assert.Equal("Update log", log.Header);
+            Assert.Equal("Branches", branchesTab.Header);
             Assert.Equal("Get latest", Control<Button>(window, "GetLatestButton").Content);
             Assert.Empty(Control<TextBlock>(window, "ActiveProjectText").Text);
             Assert.Equal("Branch:", Control<TextBlock>(window, "CurrentBranchText").Text);
@@ -625,9 +627,7 @@ public sealed class WorkspaceTests : IDisposable
             Assert.Equal(nameof(BranchEntry.Name), list.DisplayMemberPath);
             Assert.Equal(2, list.Items.Count);
             Assert.Equal("main", Assert.IsType<BranchEntry>(list.SelectedItem).Name);
-            Assert.False(Control<Button>(window, "SwitchBranchButton").IsEnabled);
             list.SelectedIndex = 1;
-            Click(window, "SwitchBranchButton");
             Assert.Equal("feature", branches.Switched?.Name);
             Assert.False(Control<Button>(window, "SwitchProjectButton").IsEnabled);
             branches.Completion.SetResult();
@@ -636,6 +636,51 @@ public sealed class WorkspaceTests : IDisposable
             Assert.Contains("Switched to branch \"feature\".", Control<TextBlock>(window, "StatusText").Text);
             Assert.True(Control<Button>(window, "SwitchProjectButton").IsEnabled);
             Assert.Equal([path, path], fileStatus.Paths);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void BranchesTabCreatesSwitchesAndDeletesBranches()
+    {
+        RunSta(() =>
+        {
+            var path = CreateRepository("branch-tab", "keep.txt");
+            var store = new ProjectSettingsStore(Path.Combine(directory, "projects.json"));
+            store.Load();
+            var info = new FakeProjectRepositoryInfo();
+            store.Save([new ProjectProfile(Guid.NewGuid(), "Project", server.Id, server.RemoteUrl, "repo", path, info.RepositoryId)]);
+            var branches = new FakeBranchService();
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
+                repositoryInfo: info, branchService: branches);
+            window.Show();
+            Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
+            Click(window, "SwitchProjectButton");
+            var tabs = Control<TabControl>(window, "WorkspaceTabs");
+            tabs.SelectedItem = Control<TabItem>(window, "BranchesTab");
+            PumpDispatcher();
+            var list = Control<ListBox>(window, "BranchesList");
+            Assert.Equal(2, list.Items.Count);
+            Assert.Equal("main", Assert.IsType<BranchEntry>(list.SelectedItem).Name);
+            var newName = Control<TextBox>(window, "NewBranchNameText");
+            newName.Text = "release";
+            Click(window, "CreateBranchButton");
+            Assert.Equal("release", Assert.Single(branches.Created));
+            Assert.Equal(3, list.Items.Count);
+            var release = Assert.Single(list.Items.Cast<BranchEntry>(), entry => entry.Name == "release");
+            list.SelectedItem = release;
+            Assert.True(Control<Button>(window, "SwitchSelectedBranchButton").IsEnabled);
+            Click(window, "SwitchSelectedBranchButton");
+            branches.Completion.SetResult();
+            PumpDispatcher();
+            Assert.Equal("release", branches.Switched?.Name);
+            Assert.Equal("release", Assert.IsType<BranchEntry>(list.SelectedItem).Name);
+            Assert.False(Control<Button>(window, "DeleteBranchButton").IsEnabled);
+            var feature = Assert.Single(list.Items.Cast<BranchEntry>(), entry => entry.Name == "feature");
+            list.SelectedItem = feature;
+            Click(window, "DeleteBranchButton");
+            Assert.Equal("feature", Assert.Single(branches.Deleted).Name);
+            Assert.DoesNotContain(list.Items.Cast<BranchEntry>(), entry => entry.Name == "feature");
             window.Close();
         });
     }
@@ -679,7 +724,6 @@ public sealed class WorkspaceTests : IDisposable
             Click(window, "RefreshBranchesButton");
             Assert.Contains("Could not retrieve server branches", Control<TextBlock>(window, "StatusText").Text);
             Control<ComboBox>(window, "BranchList").SelectedIndex = 1;
-            Click(window, "SwitchBranchButton");
             branches.Completion.SetException(new LoreVcs.LoreError(42));
             PumpDispatcher();
             Assert.Contains("Files may have changed", Control<TextBlock>(window, "StatusText").Text);
@@ -706,9 +750,9 @@ public sealed class WorkspaceTests : IDisposable
             Click(window, "SwitchProjectButton");
             Click(window, "RefreshBranchesButton");
             Control<ComboBox>(window, "BranchList").SelectedIndex = 1;
-            Click(window, "SwitchBranchButton");
             Assert.Null(branches.Switched);
             Assert.Contains("main", Control<TextBlock>(window, "CurrentBranchText").Text);
+            Assert.Equal("main", Assert.IsType<BranchEntry>(Control<ComboBox>(window, "BranchList").SelectedItem).Name);
             window.Close();
         });
     }
@@ -729,9 +773,8 @@ public sealed class WorkspaceTests : IDisposable
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
             Click(window, "RefreshBranchesButton");
-            Control<ComboBox>(window, "BranchList").SelectedIndex = 1;
             info.RepositoryId = "ABCDEF1234567890ABCDEF1234567890";
-            Click(window, "SwitchBranchButton");
+            Control<ComboBox>(window, "BranchList").SelectedIndex = 1;
             Assert.Null(branches.Switched);
             Assert.Contains("Could not switch branches", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
@@ -803,6 +846,8 @@ public sealed class WorkspaceTests : IDisposable
         public bool RemoteAvailable { get; init; } = true;
         public Exception? ListFailure { get; set; }
         public int ListCalls { get; private set; }
+        public List<string> Created { get; } = [];
+        public List<BranchEntry> Deleted { get; } = [];
         public TaskCompletionSource Completion { get; } = new();
 
         public Task<BranchListResult> ListAsync(string path)
@@ -810,14 +855,33 @@ public sealed class WorkspaceTests : IDisposable
             ListCalls++;
             if (ListFailure is { } failure) return Task.FromException<BranchListResult>(failure);
             var switched = Completion.Task.IsCompletedSuccessfully;
-            return Task.FromResult(new BranchListResult(
-                [main with { IsCurrent = !switched }, feature with { IsCurrent = switched }], RemoteAvailable));
+            var branches = new List<BranchEntry>
+            {
+                main with { IsCurrent = !switched },
+                feature with { IsCurrent = switched && (Switched is null || Switched.Name == feature.Name) }
+            };
+            branches = branches.Where(branch => !Deleted.Any(deleted => deleted.Name == branch.Name)).ToList();
+            branches.AddRange(Created.Where(name => !Deleted.Any(branch => branch.Name == name))
+                .Select((name, index) => new BranchEntry($"{index + 3:D32}", name, true, true, switched && Switched?.Name == name)));
+            return Task.FromResult(new BranchListResult(branches, RemoteAvailable));
         }
 
         public Task SwitchAsync(string path, BranchEntry branch)
         {
             Switched = branch;
             return Completion.Task;
+        }
+
+        public Task CreateAsync(string path, string name)
+        {
+            Created.Add(name);
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteAsync(string path, BranchEntry branch)
+        {
+            Deleted.Add(branch);
+            return Task.CompletedTask;
         }
     }
 

@@ -14,6 +14,10 @@ public interface IBranchService
 {
     Task<BranchListResult> ListAsync(string path);
     Task SwitchAsync(string path, BranchEntry branch);
+    Task CreateAsync(string path, string name) =>
+        Task.FromException(new NotSupportedException("Branch creation is not supported by this service."));
+    Task DeleteAsync(string path, BranchEntry branch) =>
+        Task.FromException(new NotSupportedException("Branch deletion is not supported by this service."));
 }
 
 public sealed class LoreBranchService : IBranchService
@@ -67,5 +71,34 @@ public sealed class LoreBranchService : IBranchService
         }).WaitAsync();
         if (!completed) throw new InvalidOperationException("Could not verify the branch ID after switching.");
         if (conflict) throw new InvalidOperationException("A conflict occurred while switching. Check the local state.");
+    }
+
+    public async Task CreateAsync(string path, string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("Enter a branch name.", nameof(name));
+        using var globals = new LoreGlobalArgs { RepositoryPath = path };
+        using var args = new LoreBranchCreateArgs { Branch = name };
+        var created = false;
+        await Lore.BranchCreate(globals, args).Callback((ev, _) =>
+        {
+            if (ev.Tag == LoreEventTag.BRANCH_CREATE)
+                created = string.Equals(ev.GetData<LoreBranchCreateEventDataFFI>().Name, name, StringComparison.Ordinal);
+        }).WaitAsync();
+        if (!created) throw new InvalidOperationException("Could not verify the created branch.");
+    }
+
+    public async Task DeleteAsync(string path, BranchEntry branch)
+    {
+        if (branch.IsCurrent) throw new InvalidOperationException("The current branch cannot be deleted.");
+        using var globals = new LoreGlobalArgs { RepositoryPath = path };
+        using var args = new LoreBranchArchiveArgs { Branch = branch.Name };
+        var archived = false;
+        await Lore.BranchArchive(globals, args).Callback((ev, _) =>
+        {
+            if (ev.Tag == LoreEventTag.BRANCH_ARCHIVE)
+                archived = string.Equals(ev.GetData<LoreBranchArchiveEventDataFFI>().Name, branch.Name, StringComparison.Ordinal);
+        }).WaitAsync();
+        if (!archived) throw new InvalidOperationException("Could not verify the deleted branch.");
     }
 }
