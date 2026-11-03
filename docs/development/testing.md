@@ -1,9 +1,9 @@
-# テスト
+# Testing
 
-リポジトリのルートからPowerShellで実行します。
+Run this from PowerShell at the repository root.
 
 ```powershell
 dotnet test .\tests\Chronicler.Tests\Chronicler.Tests.csproj -c Release
 ```
 
-自動テストは一時フォルダーとログイン・リポジトリ操作の代替実装を使用し、SDKによるオフラインのリビジョン同期も検証します。実際のサーバーやEntra環境へのログイン、実際のcloneやサーバーからの取得は含みません。
+Automated tests use temporary folders and substitute implementations for login and repository operations. They also verify offline revision synchronization through the SDK. They do not include login to an actual server or Entra environment, actual cloning, or retrieving from a server.

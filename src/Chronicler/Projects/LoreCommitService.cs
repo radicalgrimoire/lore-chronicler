@@ -16,7 +16,7 @@ public sealed class LoreCommitService : ICommitService
     public Task CommitAsync(string path, string message)
     {
         if (string.IsNullOrWhiteSpace(message))
-            throw new ArgumentException("コミットメッセージを入力してください。", nameof(message));
+            throw new ArgumentException("Enter a commit message.", nameof(message));
         return Task.Run(async () =>
         {
             string? error = null;
@@ -32,8 +32,8 @@ public sealed class LoreCommitService : ICommitService
                     if (ev.Tag == LoreEventTag.REVISION_COMMIT_REVISION) revisionCreated = true;
                 }
             }).WaitAsync();
-            if (error is not null) throw new InvalidDataException($"コミットを完了できません: {error}");
-            if (!revisionCreated) throw new InvalidDataException("コミットされたリビジョンを確認できませんでした。");
+            if (error is not null) throw new InvalidDataException($"Could not complete commit: {error}");
+            if (!revisionCreated) throw new InvalidDataException("Could not verify the committed revision.");
         });
     }
 }

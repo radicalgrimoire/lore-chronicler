@@ -42,14 +42,16 @@ public sealed class CommitWindowTests : IDisposable
             Control<ComboBox>(window, "ChangeFilter").SelectedIndex = 1;
             var list = Control<ListBox>(window, "ChangeList");
             Assert.DoesNotContain(list.Items.OfType<StagedEntry>(), entry => entry.IsStaged);
-            Assert.Contains("ステージ済み 1件", Control<TextBlock>(window, "CommitTargetText").Text);
+            Assert.Contains("1 staged change", Control<TextBlock>(window, "CommitTargetText").Text);
             Control<TextBox>(window, "CommitMessageText").Text = "draft";
             Assert.True(Control<Button>(window, "CommitButton").IsEnabled);
             Click(window, "CommitButton");
             Assert.Empty(commits.Calls);
             Assert.Equal("draft", Control<TextBox>(window, "CommitMessageText").Text);
             Assert.Contains("staged.txt", confirmation);
-            Assert.Contains("1件", confirmation);
+            Assert.Contains("1 staged change", confirmation);
+            Assert.Contains("filter and selection do not affect", confirmation);
+            Assert.Contains("current contents will be committed", confirmation);
             Assert.DoesNotContain("working.txt", confirmation);
             approved = true;
             Click(window, "CommitButton");
@@ -90,7 +92,7 @@ public sealed class CommitWindowTests : IDisposable
             Assert.Equal((project.LocalPath, "title\n\nbody"), Assert.Single(commits.Calls));
             Assert.Empty(list.Items);
             Assert.Empty(Control<TextBox>(window, "CommitMessageText").Text);
-            Assert.Contains("サーバーへの送信は行っていません", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Commit created.", Control<TextBlock>(window, "StatusText").Text);
             Assert.False(button.IsEnabled);
             SelectTab(window, "UpdateLogTab");
             Assert.Equal("new", Assert.IsType<RevisionHistoryEntry>(Control<ListBox>(window, "RevisionHistoryList").Items[0]).Message);
@@ -124,8 +126,8 @@ public sealed class CommitWindowTests : IDisposable
             Assert.Empty(commits.Calls);
             Assert.Equal("draft", message.Text);
             Assert.Equal("b.txt", Assert.Single(Control<ListBox>(window, "ChangeList").Items.OfType<StagedEntry>()).RelativePath);
-            Assert.Equal(conflict, Control<TextBox>(window, "StageStatusText").Text.Contains("競合"));
-            Assert.Contains("中止", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Equal(conflict, Control<TextBox>(window, "StageStatusText").Text.Contains("conflict", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains("Staged changes have changed", Control<TextBlock>(window, "StatusText").Text);
             Assert.Equal(!conflict, Control<Button>(window, "CommitButton").IsEnabled);
             window.Close();
         });
@@ -155,7 +157,7 @@ public sealed class CommitWindowTests : IDisposable
             Assert.True(message.IsEnabled);
             Assert.Equal("draft", message.Text);
             Assert.Contains("commit failure", Control<TextBlock>(window, "StatusText").Text);
-            Assert.Contains("再試行前", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Could not verify the commit", Control<TextBlock>(window, "StatusText").Text);
             Assert.Equal(3, status.Paths.Count);
             Assert.Single(Control<ListBox>(window, "ChangeList").Items.OfType<StagedEntry>());
             window.Close();
@@ -182,7 +184,7 @@ public sealed class CommitWindowTests : IDisposable
             Assert.Equal("draft", Control<TextBox>(window, "CommitMessageText").Text);
             Assert.Empty(Control<ListBox>(window, "ChangeList").Items);
             Assert.Contains("scan failed", Control<TextBox>(window, "StageStatusText").Text);
-            Assert.Contains("コミット前の確認に失敗", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Pre-commit verification failed", Control<TextBlock>(window, "StatusText").Text);
             Assert.False(Control<Button>(window, "CommitButton").IsEnabled);
             window.Close();
         });
@@ -271,8 +273,8 @@ public sealed class CommitWindowTests : IDisposable
             Control<TextBox>(window, "CommitMessageText").Text = "real commit";
             WaitUntil(() => Control<Button>(window, "CommitButton").IsEnabled);
             Click(window, "CommitButton");
-            WaitUntil(() => Control<TextBlock>(window, "StatusText").Text.Contains("コミットしました")
-                && Control<TextBox>(window, "StageStatusText").Text.Contains("ありません"));
+            WaitUntil(() => Control<TextBlock>(window, "StatusText").Text.Contains("Commit created.")
+                && Control<TextBox>(window, "StageStatusText").Text.Contains("staged"));
             Assert.Empty(Control<TextBox>(window, "CommitMessageText").Text);
             window.Close();
         });

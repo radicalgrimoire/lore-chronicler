@@ -8,7 +8,7 @@ public sealed class ProjectSettingsStore(string filePath)
 {
     private readonly AtomicSettingsFile<ProjectSettings> file = new(filePath);
     public string DirectoryPath => Path.GetDirectoryName(filePath)
-        ?? throw new InvalidOperationException("プロジェクト設定の保存先が不正です。");
+        ?? throw new InvalidOperationException("The project settings save location is invalid.");
     public static string DefaultPath => Path.Combine(
         Path.GetDirectoryName(ServerSettingsStore.DefaultPath)!, "projects.json");
 
@@ -34,7 +34,7 @@ public sealed class ProjectSettingsStore(string filePath)
     {
         if (settings.Version != 1 || settings.Projects is null)
         {
-            throw new InvalidDataException("プロジェクト設定の形式またはバージョンが不正です。");
+            throw new InvalidDataException("The project settings format or version is invalid.");
         }
         var ids = new HashSet<Guid>();
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -52,7 +52,7 @@ public sealed class ProjectSettingsStore(string filePath)
                 || !ProjectValidator.TryNormalizePath(project.LocalPath, out var path, out _)
                 || !ids.Add(project.Id) || !paths.Add(path))
             {
-                throw new InvalidDataException("プロジェクト設定に不正または重複した項目があります。");
+                throw new InvalidDataException("Project settings contain invalid or duplicate entries.");
             }
         }
     }

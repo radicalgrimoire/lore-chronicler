@@ -58,7 +58,7 @@ public sealed class FileStatusWindowTests : IDisposable
             var changes = Control<ListBox>(window, "ChangeList");
             Assert.Contains(changes.Items.OfType<StagedEntry>(), entry => entry.RelativePath == "tracked.txt" && entry.Action == ChangeAction.Modified);
             Assert.Contains(changes.Items.OfType<StagedEntry>(), entry => entry.RelativePath == "folder\\new.txt" && entry.Action == ChangeAction.Added);
-            Assert.Contains("前回の確認時点", Control<TextBox>(window, "StageStatusText").Text);
+            Assert.Contains("2 unstaged", Control<TextBox>(window, "StageStatusText").Text);
 
             changed = false;
             Click(window, "RefreshTreeButton");
@@ -93,7 +93,7 @@ public sealed class FileStatusWindowTests : IDisposable
             var window = CreateWindow(service, first, second);
             window.Show();
             SelectProject(window, 0);
-            Assert.Contains("確認しています", Control<TextBox>(window, "StageStatusText").Text);
+            Assert.Contains("Checking staged changes", Control<TextBox>(window, "StageStatusText").Text);
             Assert.False(Control<Button>(window, "GetLatestButton").IsEnabled);
             Assert.True(Control<Button>(window, "SwitchProjectButton").IsEnabled);
             SelectProject(window, 1);
@@ -135,7 +135,7 @@ public sealed class FileStatusWindowTests : IDisposable
             var item = WaitForChild(root, "file.txt");
             AssertHighlight(item, false);
             Assert.Equal("file.txt", Assert.Single(Control<ListBox>(window, "ChangeList").Items.OfType<StagedEntry>()).RelativePath);
-            Assert.Contains("前回の確認時点", Control<TextBox>(window, "StageStatusText").Text);
+            Assert.Contains("1 unstaged", Control<TextBox>(window, "StageStatusText").Text);
             window.Close();
         });
     }
@@ -179,7 +179,7 @@ public sealed class FileStatusWindowTests : IDisposable
             var changes = Control<ListBox>(window, "ChangeList").Items.OfType<StagedEntry>().ToArray();
             Assert.Contains(changes, entry => entry.RelativePath == "tracked.txt" && entry.Action == ChangeAction.Modified);
             Assert.Contains(changes, entry => entry.RelativePath == "new.txt" && entry.Action == ChangeAction.Added);
-            Assert.Contains("前回の確認時点", Control<TextBox>(window, "StageStatusText").Text);
+            Assert.Contains("2 unstaged", Control<TextBox>(window, "StageStatusText").Text);
             window.Close();
         });
     }
@@ -230,7 +230,7 @@ public sealed class FileStatusWindowTests : IDisposable
             Assert.Equal(Color.FromRgb(255, 242, 179), background?.Color);
         else
             Assert.True(background is null || background.Color == Colors.Transparent);
-        Assert.Equal(expected ? "変更あり" : string.Empty, AutomationProperties.GetItemStatus(item));
+        Assert.Equal(string.Empty, AutomationProperties.GetItemStatus(item));
     }
 
     private static TextBlock? FindHeader(DependencyObject parent, string header)

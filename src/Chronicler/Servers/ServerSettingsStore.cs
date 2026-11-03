@@ -8,7 +8,7 @@ public sealed class ServerSettingsStore(string filePath)
     private const int CurrentVersion = 1;
     private readonly AtomicSettingsFile<ServerSettings> file = new(filePath);
     public string DirectoryPath => Path.GetDirectoryName(filePath)
-        ?? throw new InvalidOperationException("サーバー設定の保存先が不正です。");
+        ?? throw new InvalidOperationException("The server settings save location is invalid.");
 
     public static string DefaultPath
     {
@@ -17,7 +17,7 @@ public sealed class ServerSettingsStore(string filePath)
             var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             if (string.IsNullOrEmpty(localAppData))
             {
-                throw new InvalidOperationException("Windowsのローカルアプリケーションデータフォルダーを取得できません。");
+                throw new InvalidOperationException("Could not locate the Windows local application data folder.");
             }
             return Path.Combine(localAppData, "Chronicler", "servers.json");
         }
@@ -45,7 +45,7 @@ public sealed class ServerSettingsStore(string filePath)
     {
         if (settings.Version != CurrentVersion || settings.Servers is null)
         {
-            throw new InvalidDataException("サーバー設定の形式またはバージョンが不正です。");
+            throw new InvalidDataException("The server settings format or version is invalid.");
         }
 
         var ids = new HashSet<Guid>();
@@ -59,7 +59,7 @@ public sealed class ServerSettingsStore(string filePath)
                 || !ids.Add(server.Id)
                 || !names.Add(server.Name))
             {
-                throw new InvalidDataException("サーバー設定に不正または重複した項目があります。");
+                throw new InvalidDataException("Server settings contain invalid or duplicate entries.");
             }
         }
     }

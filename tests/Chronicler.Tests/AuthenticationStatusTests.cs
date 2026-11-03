@@ -30,7 +30,7 @@ public sealed class AuthenticationStatusTests : IDisposable
         var status = AuthenticationStatus.FromIdentities("AABB", identities);
         Assert.True(status.HasIdentity);
         Assert.Equal(Now.AddHours(2), status.ExpiresAt);
-        Assert.Equal("認証済み（期限 2026/11/02 21:00）", status.GetText(Now));
+        Assert.Equal("Authenticated: 2026-11-02 21:00", status.GetText(Now));
 
         status = AuthenticationStatus.FromIdentities("aabb",
             [new("https://auth.example", "aabb", Now.AddHours(3)), new("https://auth.example", "", Now)]);
@@ -42,18 +42,18 @@ public sealed class AuthenticationStatusTests : IDisposable
     {
         var missing = AuthenticationStatus.FromIdentities("aabb", [new("https://auth.example", "", Now.AddDays(1))]);
         Assert.False(missing.HasIdentity);
-        Assert.Equal("未ログイン", missing.GetText(Now));
-        Assert.Equal("認証情報あり（期限不明）",
+        Assert.Equal("Not signed in", missing.GetText(Now));
+        Assert.Equal("Credentials available (expiration unknown)",
             AuthenticationStatus.FromIdentities("aabb", [new("https://auth.example", "aabb", null)]).GetText(Now));
         var status = new AuthenticationStatus(true, Now);
-        Assert.Equal("認証済み（期限 2026/11/02 19:00）", status.GetText(Now.AddTicks(-1)));
-        Assert.Equal("期限切れ（期限 2026/11/02 19:00）", status.GetText(Now));
-        Assert.Equal("期限切れ（期限 2026/11/02 19:00）", status.GetText(Now.AddSeconds(1)));
+        Assert.Equal("Authenticated: 2026-11-02 19:00", status.GetText(Now.AddTicks(-1)));
+        Assert.Equal("Expired", status.GetText(Now));
+        Assert.Equal("Expired", status.GetText(Now.AddSeconds(1)));
         Assert.Throws<ArgumentException>(() => AuthenticationStatus.FromIdentities("", []));
     }
 
     [Fact]
-    public void SelectionAndLoginRefreshStatusWithoutStartingLoginAutomatically()
+    public void OpenProjectAndLoginRefreshStatusWithoutStartingLoginAutomatically()
     {
         RunSta(() =>
         {
@@ -68,41 +68,50 @@ public sealed class AuthenticationStatusTests : IDisposable
             window.Show();
             var label = Control<TextBlock>(window, "AuthenticationStatusText");
             var header = Assert.IsType<StackPanel>(label.Parent);
-            Assert.Equal(Orientation.Vertical, header.Orientation);
-            Assert.Same(Control<TextBlock>(window, "ServerText"), header.Children[0]);
+            Assert.Same(Control<TextBlock>(window, "ActiveProjectText"), header.Children[0]);
             Assert.Same(label, header.Children[1]);
-            Assert.Equal(HorizontalAlignment.Right, header.HorizontalAlignment);
-            Assert.Equal(HorizontalAlignment.Right, label.HorizontalAlignment);
+            Assert.Same(Control<TextBlock>(window, "CurrentBranchText"), header.Children[2]);
+            Assert.Same(Control<ComboBox>(window, "BranchList").Parent, header.Children[3]);
             var list = Control<ListBox>(window, "ProjectList");
             Assert.Empty(service.RepositoryIds);
-            Assert.Contains("プロジェクトを選択", label.Text);
+            Assert.Empty(label.Text);
 
             list.SelectedIndex = 0;
-            Assert.Equal("未ログイン", label.Text);
+            Assert.Empty(label.Text);
+            Click(window, "SwitchProjectButton");
+            Assert.Equal("Not signed in", label.Text);
             Assert.Equal(Brushes.Firebrick, label.Foreground);
             Assert.Equal(0, loginCount);
             Click(window, "LoginButton");
-            Assert.StartsWith("認証済み（期限 ", label.Text);
+            Assert.StartsWith("Authenticated: ", label.Text);
             Assert.Equal(Brushes.DarkGreen, label.Foreground);
             Assert.Equal(1, loginCount);
             Assert.Equal([FirstId, FirstId], service.RepositoryIds);
 
             service.Read = _ => Task.FromResult(new AuthenticationStatus(true, Now.AddYears(-10)));
             list.SelectedIndex = 1;
-            Assert.StartsWith("期限切れ（期限 ", label.Text);
+            Assert.StartsWith("Authenticated: ", label.Text);
+            Click(window, "SwitchProjectButton");
+            Assert.Equal("Expired", label.Text);
             Assert.Equal(Brushes.Firebrick, label.Foreground);
             Assert.Equal(1, loginCount);
             list.SelectedIndex = 2;
-            Assert.Contains("初回取得後", label.Text);
+            Assert.Equal("Expired", label.Text);
+            Click(window, "SwitchProjectButton");
+            Assert.Equal("Available after initial download", label.Text);
             Assert.Equal(3, service.RepositoryIds.Count);
             list.SelectedIndex = -1;
-            Assert.Contains("プロジェクトを選択", label.Text);
+            Assert.Equal("Available after initial download", label.Text);
+            list.SelectedIndex = 2;
+            Click(window, "RemoveProjectButton");
+            Assert.Empty(label.Text);
+            Assert.Empty(Control<TextBlock>(window, "ActiveProjectText").Text);
             window.Close();
         });
     }
 
     [Fact]
-    public void ReadFailuresAreVisibleAndDelayedResultsCannotOverwriteSelectionOrClosedWindow()
+    public void ReadFailuresAreVisibleAndDelayedResultsCannotOverwriteOpenProjectOrClosedWindow()
     {
         RunSta(() =>
         {
@@ -116,16 +125,19 @@ public sealed class AuthenticationStatusTests : IDisposable
             var label = Control<TextBlock>(window, "AuthenticationStatusText");
             var list = Control<ListBox>(window, "ProjectList");
             list.SelectedIndex = 0;
-            Assert.Contains("確認しています", label.Text);
+            Click(window, "SwitchProjectButton");
+            Assert.Equal("Checking authentication...", label.Text);
             list.SelectedIndex = 1;
+            Click(window, "SwitchProjectButton");
             Assert.Contains("cache read failed", label.Text);
-            Assert.DoesNotContain("未ログイン", label.Text);
+            Assert.DoesNotContain("Not signed in", label.Text);
             delayed.SetResult(new AuthenticationStatus(true, Now.AddYears(10)));
             PumpDispatcher();
             Assert.Contains("cache read failed", label.Text);
 
             delayed = new TaskCompletionSource<AuthenticationStatus>();
             list.SelectedIndex = 0;
+            Click(window, "SwitchProjectButton");
             var beforeClose = label.Text;
             window.Close();
             delayed.SetResult(new AuthenticationStatus(false, null));
@@ -143,12 +155,13 @@ public sealed class AuthenticationStatusTests : IDisposable
             var window = CreateWindow(service, _ => false);
             window.Show();
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
+            Click(window, "SwitchProjectButton");
             var label = Control<TextBlock>(window, "AuthenticationStatusText");
-            Assert.Equal("未ログイン", label.Text);
+            Assert.Equal("Not signed in", label.Text);
             service.Read = _ => Task.FromResult(new AuthenticationStatus(true, null));
             typeof(Window).GetMethod("OnActivated", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
                 .Invoke(window, [EventArgs.Empty]);
-            Assert.Equal("認証情報あり（期限不明）", label.Text);
+            Assert.Equal("Credentials available (expiration unknown)", label.Text);
             window.Close();
         });
     }
@@ -156,6 +169,8 @@ public sealed class AuthenticationStatusTests : IDisposable
     private WorkspaceWindow CreateWindow(FakeStatusService service, Func<string, bool> authenticate)
     {
         var server = new ServerProfile(Guid.NewGuid(), "Server", "lore://localhost:41337");
+        Directory.CreateDirectory(Path.Combine(directory, "first", ".lore"));
+        Directory.CreateDirectory(Path.Combine(directory, "second", ".lore"));
         var store = new ProjectSettingsStore(Path.Combine(directory, "projects.json"));
         store.Load();
         store.Save([
@@ -164,8 +179,10 @@ public sealed class AuthenticationStatusTests : IDisposable
             new(Guid.NewGuid(), "Pending", server.Id, server.RemoteUrl, "pending", Path.Combine(directory, "pending"),
                 CloneState: ProjectCloneState.Pending)
         ]);
-        return new WorkspaceWindow(server, store, new UnusedRepositoryService(), authenticate: authenticate,
-            authenticationStatusService: service);
+        return new WorkspaceWindow(server, store, new UnusedRepositoryService(), confirm: (_, _) => true, authenticate: authenticate,
+            authenticationStatusService: service, repositoryInfo: new FakeRepositoryInfo(),
+            branchService: new FakeBranchService(), fileStatusService: new FakeFileStatusService(),
+            fileLockService: new FakeFileLockService());
     }
 
     public void Dispose()
@@ -192,5 +209,21 @@ public sealed class AuthenticationStatusTests : IDisposable
             RepositoryIds.Add(repositoryId);
             return Read(repositoryId);
         }
+    }
+
+    private sealed class FakeRepositoryInfo : IProjectRepositoryInfo
+    {
+        private const string Url = "lore://localhost:41337";
+        public Task<string> ReadServerUrlAsync(string path) => Task.FromResult(Url);
+        public Task<LocalRepositoryInfo> ReadLocalAsync(string path) =>
+            Task.FromResult(new LocalRepositoryInfo(Url, Path.GetFileName(path) == "first" ? FirstId : SecondId));
+        public Task<RemoteRepositoryInfo> ReadRemoteAsync(string path) => throw new InvalidOperationException("Unexpected remote access");
+    }
+
+    private sealed class FakeBranchService : IBranchService
+    {
+        public Task<BranchListResult> ListAsync(string path) =>
+            Task.FromResult(new BranchListResult([new BranchEntry("1", "main", true, false, true)], false));
+        public Task SwitchAsync(string path, BranchEntry branch) => throw new InvalidOperationException("Unexpected switch");
     }
 }

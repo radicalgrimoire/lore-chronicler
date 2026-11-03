@@ -54,6 +54,8 @@ public sealed class StageWindowTests : IDisposable
             Assert.Equal("✓", staged.StateMarker);
             Assert.Equal("#FFE4F5E8", staged.Background);
             var added = Assert.Single(list.Items.OfType<StagedEntry>(), entry => entry.Action == ChangeAction.Added);
+            Assert.Equal("・", added.StateMarker);
+            Assert.Contains("unstaged", added.AccessibleName);
             list.SelectedItem = added;
             filter.SelectedIndex = 2;
             Assert.Empty(list.SelectedItems);
@@ -93,7 +95,7 @@ public sealed class StageWindowTests : IDisposable
             Assert.Contains(list.Items.OfType<StagedEntry>(), entry => entry.RelativePath == "folder\\staged.txt");
             filter.SelectedIndex = 0;
             Assert.False(list.Items.OfType<StagedEntry>().Single(entry => entry.RelativePath == "folder\\nested").IsExpanded);
-            Assert.Contains("1件", Control<TextBlock>(window, "CommitTargetText").Text);
+            Assert.Contains("1 staged change", Control<TextBlock>(window, "CommitTargetText").Text);
             window.Close();
         });
     }
@@ -123,10 +125,10 @@ public sealed class StageWindowTests : IDisposable
             var list = Control<ListBox>(window, "ChangeList");
             list.SelectedItem = list.Items.OfType<StagedEntry>().Single(entry => entry.Action == ChangeAction.Folder);
             Click(window, "StageSelectionButton");
-            Assert.Contains("見えないステージ済み", warning);
+            Assert.Contains("Staged items hidden by the filter may also be affected", warning);
             Assert.Contains("folder", warning);
             Assert.Empty(service.Staged);
-            Assert.Contains("キャンセル", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("cancelled", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }
@@ -160,7 +162,7 @@ public sealed class StageWindowTests : IDisposable
             var deleted = Assert.Single(entries, entry => entry.Action == ChangeAction.Deleted);
             var other = Assert.Single(entries, entry => entry.Action == ChangeAction.Modified);
             Assert.Equal("−", deleted.Icon);
-            Assert.Equal("削除", deleted.ActionText);
+            Assert.Equal("Delete", deleted.ActionText);
             Assert.Equal("#FFFFF2C6", deleted.Background);
             list.SelectedItems.Add(folder);
             list.SelectedItems.Add(deleted);
@@ -254,7 +256,7 @@ public sealed class StageWindowTests : IDisposable
             Assert.Equal([folder, Path.Combine(project.LocalPath, "other.txt")], unstage.Paths);
             Control<ComboBox>(window, "ChangeFilter").SelectedIndex = 2;
             Assert.Empty(list.Items);
-            Assert.Contains("ありません", Control<TextBox>(window, "StageStatusText").Text);
+            Assert.Contains("no staged changes", Control<TextBox>(window, "StageStatusText").Text);
             window.Close();
         });
     }
@@ -284,8 +286,8 @@ public sealed class StageWindowTests : IDisposable
             Click(window, "StageSelectionButton");
             Assert.Equal((project.LocalPath, filePath), Assert.Single(service.Staged));
             Assert.Contains("partial failure", Control<TextBlock>(window, "StatusText").Text);
-            Assert.Contains("一部", Control<TextBlock>(window, "StatusText").Text);
-            Assert.Contains("確認しています", Control<TextBox>(window, "StageStatusText").Text);
+            Assert.Contains("Stage failed", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Checking staged changes", Control<TextBox>(window, "StageStatusText").Text);
             Assert.False(Control<Button>(window, "StageSelectionButton").IsEnabled);
             Assert.False(Control<Button>(window, "UnstageButton").IsEnabled);
             rescan.SetResult(new FileStatusSnapshot(project.LocalPath,
@@ -344,7 +346,7 @@ public sealed class StageWindowTests : IDisposable
             Assert.False(Control<Button>(window, "StageSelectionButton").IsEnabled);
             Assert.False(Control<Button>(window, "SwitchProjectButton").IsEnabled);
             Assert.False(Control<Button>(window, "GetLatestButton").IsEnabled);
-            Assert.Contains("しています", Control<TextBox>(window, "StageStatusText").Text);
+            Assert.Contains("Stage in progress", Control<TextBox>(window, "StageStatusText").Text);
             pending.SetResult();
             PumpDispatcher();
             unstaged.SelectedItem = unstaged.Items.OfType<StagedEntry>().Single();
@@ -374,12 +376,12 @@ public sealed class StageWindowTests : IDisposable
             WaitUntil(() => Control<Button>(window, "StageSelectionButton").IsEnabled);
             Click(window, "StageSelectionButton");
             var list = Control<ListBox>(window, "ChangeList");
-            WaitUntil(() => list.Items.OfType<StagedEntry>().Any(entry => entry.IsStaged) && Control<TextBox>(window, "StageStatusText").Text.Contains("前回"));
+            WaitUntil(() => list.Items.OfType<StagedEntry>().Any(entry => entry.IsStaged) && Control<TextBox>(window, "StageStatusText").Text.Contains("staged"));
             Assert.Equal("file.txt", Assert.Single(list.Items.OfType<StagedEntry>()).RelativePath);
             list.SelectedItem = list.Items.OfType<StagedEntry>().Single();
             Click(window, "UnstageButton");
             Control<ComboBox>(window, "ChangeFilter").SelectedIndex = 2;
-            WaitUntil(() => list.Items.Count == 0 && Control<TextBox>(window, "StageStatusText").Text.Contains("ありません"));
+            WaitUntil(() => list.Items.Count == 0 && Control<TextBox>(window, "StageStatusText").Text.Contains("no staged changes"));
             Assert.Equal("working content", File.ReadAllText(Path.Combine(path, "file.txt")));
             window.Close();
         });

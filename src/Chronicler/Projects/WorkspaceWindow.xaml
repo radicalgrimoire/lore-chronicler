@@ -41,29 +41,23 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Border Background="#F1F3F5" Padding="16,10">
-            <DockPanel>
-                <TextBlock Text="Chronicler" FontSize="20" FontWeight="SemiBold" DockPanel.Dock="Left" />
-                <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <TextBlock x:Name="ServerText" HorizontalAlignment="Right" />
-                    <TextBlock x:Name="AuthenticationStatusText" Text="認証状態: プロジェクトを選択してください。"
-                               HorizontalAlignment="Right" Margin="0,4,0,0" TextWrapping="Wrap" Foreground="DimGray"
-                               AutomationProperties.Name="認証状態" />
-                </StackPanel>
-            </DockPanel>
+            <TextBlock Text="Chronicler" FontSize="20" FontWeight="SemiBold" />
         </Border>
         <Border Grid.Row="1" Background="#F1F3F5" Padding="12,4,12,8">
             <WrapPanel>
-                <Button x:Name="RefreshTreeButton" Content="リフレッシュ" Padding="12,6" Margin="0,0,8,0"
-                        ToolTip="ローカルファイルと変更状態を更新し、サーバーからLoreのロック状態を取得します。変更状態の走査はLoreのローカル管理情報を更新します。"
+                <Button x:Name="RefreshTreeButton" Content="Refresh" Padding="12,6" Margin="0,0,8,0"
+                        ToolTip="Refresh local files and changes, and retrieve locks from the server. Scanning updates Lore's local metadata."
                         Click="RefreshTreeButton_Click" />
-                <Button x:Name="GetLatestButton" Content="サーバーから取得" Padding="12,6" Margin="0,0,8,0"
-                        ToolTip="初回はcloneし、clone済みなら最新リビジョンに更新します。"
+                <Button x:Name="GetLatestButton" Content="Get latest" Padding="12,6" Margin="0,0,8,0"
+                        ToolTip="Clone the project on first use, or update it to the latest server revision."
                         Click="GetLatestButton_Click" />
-                <Button x:Name="PushButton" Content="プッシュ" Padding="12,6" Margin="0,0,8,0"
-                        ToolTip="現在のブランチのコミット済み履歴をサーバーへ送信します。"
+                <Button x:Name="PushButton" Content="Push" Padding="12,6" Margin="0,0,8,0"
+                        ToolTip="Push committed history on the current branch to the server."
                         Click="PushButton_Click" />
-                <Button x:Name="LoginButton" Content="ログイン" Padding="12,6" Margin="0,0,8,0"
-                        ToolTip="選択したプロジェクトのサーバーにログインします。" Click="LoginButton_Click" />
+                <Button x:Name="LoginButton" Content="Sign in" Padding="12,6" Margin="0,0,8,0"
+                        ToolTip="Sign in to the selected project's server." Click="LoginButton_Click" />
+                <Button x:Name="ManageServersButton" Content="Manage connections" Padding="12,6" Margin="0,0,8,0"
+                        Click="ManageServersButton_Click" />
             </WrapPanel>
         </Border>
         <Grid Grid.Row="2" Margin="12">
@@ -78,25 +72,25 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
                 <DockPanel Margin="0,0,0,8">
-                    <Button x:Name="OpenFolderButton" Content="フォルダーを開く" DockPanel.Dock="Right"
+                    <Button x:Name="OpenFolderButton" Content="Open folder" DockPanel.Dock="Right"
                             Padding="10,4" Click="OpenFolderButton_Click" />
                     <StackPanel>
-                        <TextBlock x:Name="ActiveProjectText" Text="プロジェクトが選択されていません" Margin="0,4,0,0" />
-                        <TextBox x:Name="LockStatusText" Text="ロック状態は未取得です。" Margin="0,4,0,0"
-                                 IsReadOnly="True" BorderThickness="0" Background="Transparent" Padding="0"
-                                 TextWrapping="Wrap" MaxHeight="90" VerticalScrollBarVisibility="Auto" />
-                        <TextBlock x:Name="CurrentBranchText" Text="ブランチ: 未取得" Margin="0,6,0,0" />
+                        <TextBlock x:Name="ActiveProjectText" Margin="0,4,0,0" TextWrapping="Wrap" />
+                        <TextBlock x:Name="AuthenticationStatusText" Margin="0,4,0,0"
+                                   TextWrapping="Wrap" Foreground="DimGray"
+                                   AutomationProperties.Name="Authentication status" />
+                        <TextBlock x:Name="CurrentBranchText" Text="Branch:" Margin="0,6,0,0" />
                         <WrapPanel Margin="0,4,0,0">
-                            <ComboBox x:Name="BranchList" Width="210" MinWidth="100" DisplayMemberPath="DisplayName"
-                                      AutomationProperties.Name="ブランチ" SelectionChanged="BranchList_SelectionChanged" />
-                            <Button x:Name="RefreshBranchesButton" Content="一覧取得" Padding="8,4" Margin="6,0,0,0"
+                            <ComboBox x:Name="BranchList" Width="210" MinWidth="100" DisplayMemberPath="Name"
+                                      AutomationProperties.Name="Branch" SelectionChanged="BranchList_SelectionChanged" />
+                            <Button x:Name="RefreshBranchesButton" Content="Get list" Padding="8,4" Margin="6,0,0,0"
                                     Click="RefreshBranchesButton_Click" />
-                            <Button x:Name="SwitchBranchButton" Content="切り替え" Padding="8,4" Margin="6,0,0,0"
+                            <Button x:Name="SwitchBranchButton" Content="Switch" Padding="8,4" Margin="6,0,0,0"
                                     Click="SwitchBranchButton_Click" />
                         </WrapPanel>
                     </StackPanel>
                 </DockPanel>
-                <TreeView x:Name="FileTree" Grid.Row="1" AutomationProperties.Name="ローカルフォルダー"
+                <TreeView x:Name="FileTree" Grid.Row="1" AutomationProperties.Name="Local files"
                           PreviewMouseDown="FileTree_PreviewMouseDown"
                           ContextMenuOpening="FileTree_ContextMenuOpening"
                           VirtualizingStackPanel.IsVirtualizing="True"
@@ -104,7 +98,7 @@
                           ScrollViewer.CanContentScroll="True">
                     <TreeView.ContextMenu>
                         <ContextMenu>
-                            <MenuItem x:Name="AcquireFileLockMenu" Header="ロック" Click="AcquireFileLock_Click" />
+                            <MenuItem x:Name="AcquireFileLockMenu" Header="Lock" Click="AcquireFileLock_Click" />
                         </ContextMenu>
                     </TreeView.ContextMenu>
                     <TreeView.Resources>
@@ -142,8 +136,8 @@
             </Grid>
             <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Background="#D8DDE2" />
             <TabControl x:Name="WorkspaceTabs" Grid.Column="2" Margin="12,0,0,0"
-                        AutomationProperties.Name="作業画面">
-                <TabItem x:Name="ProjectsTab" Header="プロジェクト">
+                        AutomationProperties.Name="Workspace tabs">
+                <TabItem x:Name="ProjectsTab" Header="Projects">
                     <Grid Margin="8">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -151,27 +145,25 @@
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <WrapPanel Margin="0,0,0,10">
-                            <Button x:Name="CreateProjectButton" Content="新規プロジェクト" Padding="12,6" Margin="0,0,8,0"
+                            <Button x:Name="CreateProjectButton" Content="New project" Padding="12,6" Margin="0,0,8,0"
                                     Click="CreateProjectButton_Click" />
-                            <Button x:Name="ManageServersButton" Content="接続先を管理" Padding="12,6" Margin="0,0,8,0"
-                                    Click="ManageServersButton_Click" />
-                            <Button x:Name="SwitchProjectButton" Content="プロジェクトを切り替え" Padding="12,6" Margin="0,0,8,0"
+                            <Button x:Name="SwitchProjectButton" Content="Switch project" Padding="12,6" Margin="0,0,8,0"
                                     Click="SwitchProjectButton_Click" />
-                            <Button x:Name="RenameProjectButton" Content="名前を変更" Padding="12,6" Margin="0,0,8,0"
+                            <Button x:Name="RenameProjectButton" Content="Rename" Padding="12,6" Margin="0,0,8,0"
                                     Click="RenameProjectButton_Click" />
-                            <Button x:Name="RemoveProjectButton" Content="登録を削除" Padding="12,6"
+                            <Button x:Name="RemoveProjectButton" Content="Remove registration" Padding="12,6"
                                     Click="RemoveProjectButton_Click" />
                         </WrapPanel>
                         <ListBox x:Name="ProjectList" Grid.Row="1" DisplayMemberPath="Name"
                                  SelectionChanged="ProjectList_SelectionChanged"
                                  MouseDoubleClick="ProjectList_MouseDoubleClick"
-                                 AutomationProperties.Name="保存済みプロジェクト" />
+                                 AutomationProperties.Name="Saved projects" />
                         <StackPanel Grid.Row="2" Margin="0,10,0,0">
                             <TextBlock x:Name="ProjectDetails" TextWrapping="Wrap" />
                         </StackPanel>
                     </Grid>
                 </TabItem>
-                <TabItem x:Name="StageTab" Header="変更">
+                <TabItem x:Name="StageTab" Header="Changes">
                     <Grid Margin="8">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -181,18 +173,18 @@
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <TextBox x:Name="StageStatusText" Grid.Row="0" Margin="0,0,0,8"
-                                 Text="プロジェクトを選択してください。" TextWrapping="Wrap"
+                                 Text="Open a project to view changes." TextWrapping="Wrap"
                                  IsReadOnly="True" BorderThickness="0" Background="Transparent"
                                  Padding="0" MaxHeight="100" VerticalScrollBarVisibility="Auto" />
                         <ComboBox x:Name="ChangeFilter" Grid.Row="1" Margin="0,0,0,6"
                                   SelectedIndex="0" SelectionChanged="ChangeFilter_SelectionChanged"
-                                  AutomationProperties.Name="変更一覧の表示">
-                            <ComboBoxItem Content="変更一覧" />
-                            <ComboBoxItem Content="未ステージ一覧" />
-                            <ComboBoxItem Content="ステージ済み一覧" />
+                                  AutomationProperties.Name="Change filter">
+                            <ComboBoxItem Content="All changes" />
+                            <ComboBoxItem Content="Unstaged changes" />
+                            <ComboBoxItem Content="Staged changes" />
                         </ComboBox>
                         <ListBox x:Name="ChangeList" Grid.Row="2" SelectionMode="Extended"
-                                 AutomationProperties.Name="変更ツリー"
+                                 AutomationProperties.Name="Changes"
                                  HorizontalContentAlignment="Stretch"
                                  SelectionChanged="StageList_SelectionChanged"
                                  VirtualizingStackPanel.IsVirtualizing="True"
@@ -205,29 +197,29 @@
                             </ListBox.ItemContainerStyle>
                         </ListBox>
                         <WrapPanel Grid.Row="3" Margin="0,8,0,0">
-                            <Button x:Name="StageSelectionButton" Content="ステージ" Margin="0,0,8,0"
+                            <Button x:Name="StageSelectionButton" Content="Stage" Margin="0,0,8,0"
                                     Padding="10,4" Click="StageSelectionButton_Click"
-                                    ToolTip="選択した未ステージの変更をステージします。フォルダーは配下も対象です。" />
-                            <Button x:Name="UnstageButton" Content="アンステージ"
+                                    ToolTip="Stage selected changes, including changes in selected folders." />
+                            <Button x:Name="UnstageButton" Content="Unstage"
                                     Padding="10,4" Click="UnstageButton_Click"
-                                    ToolTip="選択したステージ済みの変更を外します。フォルダーは配下も対象です。" />
+                                    ToolTip="Unstage selected changes, including staged changes in selected folders." />
                         </WrapPanel>
                         <StackPanel Grid.Row="4" Margin="0,10,0,0">
-                            <TextBlock x:Name="CommitTargetText" Text="コミット対象：未確認" FontWeight="SemiBold" />
-                            <TextBlock Text="コミットメッセージ" FontWeight="SemiBold" />
+                            <TextBlock x:Name="CommitTargetText" Text="Commit target: not checked" FontWeight="SemiBold" />
+                            <TextBlock Text="Commit message" FontWeight="SemiBold" />
                             <TextBox x:Name="CommitMessageText" Margin="0,4,0,0" Height="68"
                                      AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
-                                     AutomationProperties.Name="コミットメッセージ"
+                                     AutomationProperties.Name="Commit message"
                                      TextChanged="CommitMessageText_TextChanged" />
                             <TextBlock Margin="0,4,0,0" TextWrapping="Wrap"
-                                       Text="一覧の選択に関係なく、ステージ済みの変更をすべてコミットします。ステージ後に編集したファイルはコミット時の内容が使われます。" />
-                            <Button x:Name="CommitButton" Content="コミット" HorizontalAlignment="Right"
+                                       Text="All staged changes are committed, regardless of the current selection or filter." />
+                            <Button x:Name="CommitButton" Content="Commit" HorizontalAlignment="Right"
                                     Margin="0,6,0,0" Padding="12,6" Click="CommitButton_Click"
-                                    ToolTip="ローカルにコミットします。サーバーには送信しません。" />
+                                    ToolTip="Create a local commit. Push separately to send it to the server." />
                         </StackPanel>
                     </Grid>
                 </TabItem>
-                <TabItem x:Name="UpdateLogTab" Header="更新ログ">
+                <TabItem x:Name="UpdateLogTab" Header="Update log">
                     <Grid Margin="8">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -235,18 +227,18 @@
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <DockPanel>
-                            <Button x:Name="RefreshHistoryButton" DockPanel.Dock="Right" Content="履歴を更新"
+                            <Button x:Name="RefreshHistoryButton" DockPanel.Dock="Right" Content="Refresh history"
                                     Padding="10,4" Click="RefreshHistoryButton_Click"
-                                    ToolTip="不足している履歴データはサーバーから取得します。" />
-                            <TextBlock Text="現在のブランチのローカル履歴（最大100件）"
+                                    ToolTip="Missing history data is retrieved from the server." />
+                            <TextBlock Text="Current branch history (up to 100 revisions)"
                                        VerticalAlignment="Center" TextWrapping="Wrap" />
                         </DockPanel>
                         <TextBox x:Name="HistoryStatus" Grid.Row="1" Margin="0,8,0,8"
-                                 Text="プロジェクトを選択してください。" TextWrapping="Wrap"
+                                 Text="Open a project to view history." TextWrapping="Wrap"
                                  IsReadOnly="True" BorderThickness="0" Background="Transparent"
                                  Padding="0" MaxHeight="160" VerticalScrollBarVisibility="Auto" />
                         <ListBox x:Name="RevisionHistoryList" Grid.Row="2"
-                                 AutomationProperties.Name="リビジョン履歴"
+                                 AutomationProperties.Name="Revision history"
                                  HorizontalContentAlignment="Stretch"
                                  VirtualizingStackPanel.IsVirtualizing="True"
                                  VirtualizingStackPanel.VirtualizationMode="Recycling"
@@ -255,7 +247,7 @@
                                 <DataTemplate>
                                     <StackPanel Margin="2,4">
                                         <WrapPanel>
-                                            <TextBlock Text="リビジョン " />
+                                            <TextBlock Text="Revision " />
                                             <TextBlock Text="{Binding Number}" FontWeight="SemiBold" />
                                             <TextBlock Text="  " />
                                             <TextBlock Text="{Binding DisplayTimestamp}" />
@@ -269,7 +261,7 @@
                         </ListBox>
                     </Grid>
                 </TabItem>
-                <TabItem x:Name="FileLocksTab" Header="ロック一覧">
+                <TabItem x:Name="FileLocksTab" Header="Locks">
                     <Grid Margin="8">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -277,21 +269,21 @@
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <WrapPanel>
-                            <Button x:Name="RefreshMyLocksButton" Content="一覧取得" Padding="12,6" Margin="0,0,8,0"
+                            <Button x:Name="RefreshMyLocksButton" Content="Get list" Padding="12,6" Margin="0,0,8,0"
                                     Click="RefreshMyLocks_Click" />
-                            <Button x:Name="ReleaseMyLockButton" Content="選択したロックを解除" Padding="12,6"
+                            <Button x:Name="ReleaseMyLockButton" Content="Release selected lock" Padding="12,6"
                                     Click="ReleaseMyLock_Click" />
                         </WrapPanel>
                         <TextBox x:Name="MyLocksStatusText" Grid.Row="1" Margin="0,8" TextWrapping="Wrap"
                                  IsReadOnly="True" BorderThickness="0" Background="Transparent"
-                                 Text="プロジェクトを切り替えてから一覧を取得してください。" />
+                                 Text="Open a project to view locks." />
                         <ListBox x:Name="MyLocksList" Grid.Row="2" SelectionChanged="MyLocksList_SelectionChanged"
-                                 AutomationProperties.Name="自分のファイルロック" HorizontalContentAlignment="Stretch">
+                                 AutomationProperties.Name="Your locks" HorizontalContentAlignment="Stretch">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
                                     <StackPanel Margin="2,4">
                                         <TextBlock Text="{Binding RelativePath}" TextWrapping="Wrap" FontWeight="SemiBold" />
-                                        <TextBlock Text="{Binding Branch, StringFormat=ブランチID: {0}}" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding Branch, StringFormat=BranchID: {0}}" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>

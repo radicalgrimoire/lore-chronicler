@@ -13,10 +13,11 @@ public sealed record AuthenticationStatus(bool HasIdentity, DateTimeOffset? Expi
 {
     public string GetText(DateTimeOffset now)
     {
-        if (!HasIdentity) return "未ログイン";
-        if (ExpiresAt is not { } expires) return "認証情報あり（期限不明）";
-        var date = expires.ToOffset(TimeSpan.FromHours(9)).ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture);
-        return $"{(expires > now ? "認証済み" : "期限切れ")}（期限 {date}）";
+        if (!HasIdentity) return "Not signed in";
+        if (ExpiresAt is not { } expires) return "Credentials available (expiration unknown)";
+        if (expires <= now) return "Expired";
+        var date = expires.ToOffset(TimeSpan.FromHours(9)).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+        return $"Authenticated: {date}";
     }
 
     public static AuthenticationStatus FromIdentities(string repositoryId, IEnumerable<StoredAuthIdentity> identities)

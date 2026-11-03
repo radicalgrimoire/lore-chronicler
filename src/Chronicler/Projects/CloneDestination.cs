@@ -30,7 +30,7 @@ public static class CloneDestination
 
         if ((attributes & FileAttributes.Directory) == 0)
         {
-            throw new IOException("clone先はフォルダーではありません。");
+            throw new IOException("The clone destination is not a folder.");
         }
         EnsureEmpty(path);
         return true;
@@ -40,7 +40,7 @@ public static class CloneDestination
     {
         if (Directory.EnumerateFileSystemEntries(path).Any())
         {
-            throw new IOException("clone先のフォルダーが空ではありません。空のフォルダーを指定してください。");
+            throw new IOException("The clone destination is not empty. Choose an empty folder.");
         }
     }
 }

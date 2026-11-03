@@ -8,9 +8,9 @@ namespace Chronicler.Projects;
 
 public sealed record RevisionHistoryEntry(ulong Number, string Revision, string? Message, string? Author, DateTimeOffset? Timestamp)
 {
-    public string DisplayMessage => string.IsNullOrWhiteSpace(Message) ? "メッセージなし" : Message;
-    public string DisplayAuthor => string.IsNullOrWhiteSpace(Author) ? "作成者不明" : Author;
-    public string DisplayTimestamp => Timestamp?.ToLocalTime().ToString("yyyy/MM/dd HH:mm:ss") ?? "日時不明";
+    public string DisplayMessage => string.IsNullOrWhiteSpace(Message) ? "No message" : Message;
+    public string DisplayAuthor => string.IsNullOrWhiteSpace(Author) ? "Unknown author" : Author;
+    public string DisplayTimestamp => Timestamp?.ToLocalTime().ToString("yyyy/MM/dd HH:mm:ss") ?? "Unknown date";
 }
 
 public interface IRevisionHistoryService
@@ -47,19 +47,19 @@ public sealed class LoreRevisionHistoryService : IRevisionHistoryService
                     {
                         case "message":
                             if (value.Tag == LoreMetadataType.STRING) entry.Message = value.String;
-                            else error = "リビジョンのメッセージの形式が不正です。";
+                            else error = "The revision message has an invalid format.";
                             break;
                         case "created-by":
                             if (value.Tag == LoreMetadataType.STRING) entry.CreatedBy = value.String;
-                            else error = "リビジョンの作成者の形式が不正です。";
+                            else error = "The revision author has an invalid format.";
                             break;
                         case "committed-by":
                             if (value.Tag == LoreMetadataType.STRING) entry.CommittedBy = value.String;
-                            else error = "リビジョンの記録者の形式が不正です。";
+                            else error = "The revision committer has an invalid format.";
                             break;
                         case "timestamp":
                             if (value.Tag != LoreMetadataType.NUMERIC || value.Numeric > 253402300799999UL)
-                                error = "リビジョンの日時の形式が不正です。";
+                                error = "The revision timestamp has an invalid format.";
                             else if (value.Numeric != 0)
                                 entry.Timestamp = DateTimeOffset.FromUnixTimeMilliseconds((long)value.Numeric);
                             break;
@@ -69,7 +69,7 @@ public sealed class LoreRevisionHistoryService : IRevisionHistoryService
         }).WaitAsync();
 
         if (error is not null) throw new InvalidDataException(error);
-        if (entries.Count > MaximumEntries) throw new InvalidDataException("リビジョン履歴が指定した件数を超えています。");
+        if (entries.Count > MaximumEntries) throw new InvalidDataException("Revision history exceeds the requested limit.");
         return entries.Select(entry => new RevisionHistoryEntry(entry.Number, entry.Revision, entry.Message,
             entry.CreatedBy ?? entry.CommittedBy, entry.Timestamp)).ToArray();
     }

@@ -63,10 +63,10 @@ public sealed class ServerShortcutsWindowTests : IDisposable
             Click(window, "SaveButton");
             Assert.Equal(2, store.Load().Count);
             Click(window, "NewButton");
-            Control<TextBox>(window, "NameInput").Text = new string('あ', 33);
+            Control<TextBox>(window, "NameInput").Text = new string('a', 33);
             Control<TextBox>(window, "UrlInput").Text = "lore://too-long.example";
             Click(window, "SaveButton");
-            Assert.Contains("32文字", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("at most 32", Control<TextBlock>(window, "StatusText").Text);
             Assert.Equal(2, store.Load().Count);
             window.Close();
         });
@@ -87,7 +87,7 @@ public sealed class ServerShortcutsWindowTests : IDisposable
             other.Load();
             other.Save([new ServerProfile(Guid.NewGuid(), "Other", "lore://other.example")]);
             Click(window, "SaveButton");
-            Assert.Contains("保存できません", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Could not save connections", Control<TextBlock>(window, "StatusText").Text);
             Assert.Equal("Other", Assert.Single(other.Load()).Name);
             Control<TextBox>(window, "NameInput").Text = "";
             Control<TextBox>(window, "UrlInput").Text = "";
@@ -104,7 +104,7 @@ public sealed class ServerShortcutsWindowTests : IDisposable
             File.WriteAllText(ServerPath, "{");
             var window = new ServerShortcutsWindow(new ServerSettingsStore(ServerPath));
             Assert.False(Control<Button>(window, "SaveButton").IsEnabled);
-            Assert.Contains("読み込めません", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Could not load connections", Control<TextBlock>(window, "StatusText").Text);
             Assert.Equal("{", File.ReadAllText(ServerPath));
             window.Close();
         });

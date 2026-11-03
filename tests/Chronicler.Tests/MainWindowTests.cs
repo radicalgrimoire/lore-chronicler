@@ -94,7 +94,7 @@ public class MainWindowTests
                 login.Progress!.Report(new LoginProgress(Url: "http://example.com/login"));
                 PumpDispatcher();
                 Assert.Empty(browser.Opened);
-                Assert.Contains("安全", Control<TextBlock>(window, "LoginStatus").Text);
+                Assert.Contains("not secure HTTPS", Control<TextBlock>(window, "LoginStatus").Text);
 
                 login.Completion.SetException(new LoreVcs.LoreError(42));
                 PumpDispatcher();
@@ -131,7 +131,7 @@ public class MainWindowTests
                 Click(window, "LoginButton");
                 login.Progress!.Report(new LoginProgress(Url: "https://auth.example.com/login"));
                 PumpDispatcher();
-                Assert.Contains("開けません", Control<TextBlock>(window, "LoginStatus").Text);
+                Assert.Contains("Could not open the browser", Control<TextBlock>(window, "LoginStatus").Text);
                 Assert.Equal(Visibility.Visible, Control<Button>(window, "OpenBrowserButton").Visibility);
 
                 browser.Fail = false;
@@ -139,7 +139,7 @@ public class MainWindowTests
                 Assert.Single(browser.Opened);
                 login.Completion.SetResult(null);
                 PumpDispatcher();
-                Assert.Contains("完了", Control<TextBlock>(window, "LoginStatus").Text);
+                Assert.Contains("Sign-in completed", Control<TextBlock>(window, "LoginStatus").Text);
                 window.Close();
             }
             finally

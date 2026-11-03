@@ -31,7 +31,7 @@ public sealed class RevisionHistoryWindowTests : IDisposable
             Assert.Empty(service.Paths);
             SelectTab(window, "UpdateLogTab");
             Assert.Equal([project.LocalPath], service.Paths);
-            Assert.Contains("ありません", Control<TextBox>(window, "HistoryStatus").Text);
+            Assert.Contains("No local revision history", Control<TextBox>(window, "HistoryStatus").Text);
             Click(window, "RefreshHistoryButton");
             PumpDispatcher();
             Assert.Contains("history error", Control<TextBox>(window, "HistoryStatus").Text);
@@ -41,7 +41,7 @@ public sealed class RevisionHistoryWindowTests : IDisposable
             PumpDispatcher();
             Assert.Equal("loaded", Assert.IsType<RevisionHistoryEntry>(
                 Assert.Single(Control<ListBox>(window, "RevisionHistoryList").Items)).Message);
-            Assert.Contains("最大100件", Control<TextBox>(window, "HistoryStatus").Text);
+            Assert.Contains("100", Control<TextBox>(window, "HistoryStatus").Text);
             window.Close();
         });
     }
@@ -62,7 +62,7 @@ public sealed class RevisionHistoryWindowTests : IDisposable
             SelectProject(window, 0);
             SelectTab(window, "UpdateLogTab");
             var status = Control<TextBox>(window, "HistoryStatus").Text;
-            Assert.Contains("リビジョン履歴の取得", status);
+            Assert.Contains("Revision history retrieval failed", status);
             Assert.Contains("79", status);
             Assert.Contains(error.Message, status);
             Assert.Empty(Control<ListBox>(window, "RevisionHistoryList").Items);
@@ -85,7 +85,7 @@ public sealed class RevisionHistoryWindowTests : IDisposable
             repositoryInfo.LocalError = error;
             SelectTab(window, "UpdateLogTab");
             var status = Control<TextBox>(window, "HistoryStatus").Text;
-            Assert.Contains("ローカルリポジトリの確認", status);
+            Assert.Contains("Local repository verification failed", status);
             Assert.Contains("79", status);
             Assert.Contains(error.Message, status);
             Assert.Empty(history.Paths);
@@ -203,7 +203,7 @@ public sealed class RevisionHistoryWindowTests : IDisposable
             window.Show();
             SelectProject(window, 0);
             SelectTab(window, "UpdateLogTab");
-            Assert.Contains("初回取得後", Control<TextBox>(window, "HistoryStatus").Text);
+            Assert.Contains("History is available after the initial download", Control<TextBox>(window, "HistoryStatus").Text);
             Assert.Empty(history.Paths);
             Click(window, "GetLatestButton");
             PumpDispatcher();

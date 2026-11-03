@@ -1,56 +1,56 @@
-# 開発ノート
+# Development notes
 
-## 方針
+## Principles
 
-- Windows専用のデスクトップアプリとして、C#とWPFを使用する。
-- Loreとの連携には公式C# SDK `LoreVcs` を使用する。SDKはNuGetパッケージとして参照する。
-- Loreの操作は、基本的にLore CLIの挙動に準拠する。
-- ゲームエンジンなどと併用することを想定し、メモリ使用量と操作時の応答性を意識する。
-- Loreは開発中のため、SDKとネイティブライブラリのバージョン互換性を確認しながら更新する。
+- Use C# and WPF for a Windows-only desktop application.
+- Use the official C# SDK, `LoreVcs`, to integrate with Lore. Reference the SDK as a NuGet package.
+- Make Lore operations generally conform to Lore CLI behavior.
+- Assume the application will be used alongside game engines and similar tools, and be mindful of memory use and responsiveness during operations.
+- Since Lore is under development, update it while verifying version compatibility between the SDK and native library.
 
-## 現在の範囲
+## Current scope
 
-プロジェクトごとにサーバーURLを記録し、Lore SDKの対話ログインに対応する。起動時は接続せず、ログイン画面でログインを選択したときにブラウザーを開く。プロジェクト作成時はリポジトリ一覧の取得または既存cloneの確認時にログイン画面を表示し、既存の認証情報でも続行できる。ログイン中は設定変更や重複ログインを防ぎ、失敗時は画面にエラーを表示する。
+Record a server URL for each project and support the Lore SDK's interactive login. Do not connect at startup; open a browser only when login is selected on the login screen. When creating a project, show the login screen while retrieving the repository list or verifying an existing clone, allowing continuation with existing credentials. While login is in progress, prevent setting changes and duplicate logins, and show errors in the UI when they occur.
 
-起動時の作業画面は、右側にプロジェクト・変更・更新ログのタブ、左側に選択したプロジェクトのローカルファイルツリーを表示する。プロジェクトタブで全サーバーのプロジェクト一覧と作成・切り替え操作を扱い、更新ログには開いているプロジェクトの現在のローカルブランチのリビジョン履歴を最大100件表示する。履歴の取得時に不足データがあればサーバーから取得し、プロジェクトやブランチの切り替え後は読み直す。変更タブは変更項目とその親フォルダーだけを実際の階層で表示する1つのツリーで、全変更・未ステージ・ステージ済みを表示フィルターで切り替える。削除済みファイルや、配下の変更をまとめて操作するためのフォルダーも選択できる。フォルダーのステージは再帰的に走査し、アンステージも配下が対象。表示外の項目が対象となり得ることを操作前に確認する。操作はオフラインで行い、成否にかかわらず試行後にstatusを再取得する。未解決の競合は一覧から除き、存在を表示する。左側のツリーはフォルダーを開くときに読み込み、`.lore` を除外し、リンク先を展開せず、変更状態のハイライトは行わない。プロジェクトを開いたときとリフレッシュ時にオフラインのstatus scanで変更状態を取得する。scanはLoreのローカル管理情報を更新する。取得中・失敗時は状態を明示し、古い結果を破棄する。Get Latestはリモートの履歴を確認し、分岐やローカル先行時には中止する。確認したリモートリビジョンを明示してsyncし、暗黙のsyncによる自動マージを避ける。強制リセットは指定しない。サーバー側のツリー、変更状態、チェックアウトも未対応。
+At startup, the workspace shows the Projects, Changes, and Update Log tabs on the right, and the local file tree of the selected project on the left. The Projects tab manages the list of projects across all servers and project creation and switching. The Update Log displays up to 100 revisions from the current local branch of the open project. If data is missing when history is retrieved, retrieve it from the server; reload history after switching a project or branch. The Changes tab displays changed items and their parent folders in one tree using their actual hierarchy, and switches among all changes, unstaged changes, and staged changes with a display filter. Deleted files and folders used to operate on their descendant changes collectively can be selected. Staging a folder scans recursively, and unstaging includes its descendants. Confirm before an operation that items outside the display may be included. Perform operations offline and retrieve status again after each attempt regardless of success. Omit unresolved conflicts from the list and indicate that they exist. Load the left-side tree when a folder is expanded, exclude `.lore`, do not expand link targets, and do not highlight change status. Retrieve change status with an offline status scan when opening a project and refreshing. The scan updates Lore's local management data. Clearly show loading and failure states, and discard stale results. Get Latest checks remote history and cancels when histories have diverged or local history is ahead. Sync against the explicit remote revision that was checked, avoiding automatic merges caused by implicit sync. Do not specify forced reset. The server tree, change status, and checkout are not supported.
 
-ブランチ一覧はプロジェクト切り替え時・clone完了後・利用者の再取得操作でローカルとサーバーから取得し、現在のブランチを表示する。ローカルのブランチはローカルのリビジョンに切り替え、サーバーのみのブランチはサーバーから切り替える。変更はLoreの通常動作に任せ、強制リセットは使わない。サーバー一覧が取得できない場合や切り替え失敗後は、その状態を明示する。
+Retrieve branch lists locally and from the server when switching projects, after cloning completes, and when the user requests retrieval; display the current branch. Switch a local branch to its local revision, and switch to a server-only branch from the server. Leave change handling to Lore's normal behavior and do not use forced reset. Clearly indicate when the server list cannot be retrieved or switching fails.
 
-最新取得・プッシュの事前確認でSDKが未認証状態を明示した場合は、ブラウザー認証を開始して事前確認を一度だけやり直す。接続・権限エラーと区別できない操作では自動認証せず、データ変更処理の開始後も自動再試行しない。
+If the SDK explicitly indicates an unauthenticated state during prerequisite checks for Get Latest or push, start browser authentication and retry the prerequisite check once. Do not authenticate automatically for operations that cannot distinguish connection and permission errors, and do not automatically retry after data-modifying work begins.
 
-ツリーのロック表示は、プロジェクトを開いたときとリフレッシュ時にサーバーの全ブランチのLoreロックを照会する。ファイルのみ鍵を表示し、ホバーには取得者とブランチIDを列挙する。名前を解決できない場合はIDを表示し警告する。照会中・失敗時は状態を明示し、古い結果を破棄する。Windowsのファイル使用状態は対象外。
+When a project is opened and refreshed, query Lore locks on every branch on the server for lock indicators in the tree. Show a lock icon only for files, and list the acquirer and branch ID in the hover text. Show an ID and warning if a name cannot be resolved. Clearly show loading and failure states, and discard stale results. Windows file-in-use state is out of scope.
 
-変更タブの一覧下にフィルターに依存しないステージ済み件数を表示する。メッセージを入力すると対象を確認したうえで、ステージ済みの変更全体をオフラインでコミットできる。確認画面の後のstatus scanで表示中の対象との不一致や未解決の競合を検出した場合は中止する。Loreはステージ後に再編集されたファイルもコミット時点の内容で記録するため、画面で明示する。実行後はstatusと履歴を無効化し、結果を確認できなければ再試行前に確認を促す。メッセージの下書きは実行中のみプロジェクトごとに保持する。
+Display a staged-item count below the Changes tab list that does not depend on the filter. After entering a message and confirming the targets, allow all staged changes to be committed offline. Cancel if the status scan after the confirmation dialog detects a mismatch with displayed targets or unresolved conflicts. Since Lore records the contents of files re-edited after staging at commit time, state this clearly in the UI. Invalidate status and history after execution, and prompt for verification before retrying if the result cannot be confirmed. Keep message drafts per project only while the application is running.
 
-プッシュは接続先と現在のブランチ先頭を確認してから利用者に確認し、実行直前にもブランチと先頭を確認する。サーバー先行・分岐時は中止し、forceと自動マージは指定しない。ブランチ作成・復元とリンク先・レイヤーの送信はLoreの通常動作に従う。SDK呼び出しと状態確認は原子的ではなく、別プロセスとの同時変更は防げない。実行後にサーバーのリビジョンを確認し、失敗時は部分送信の可能性を表示する。
+Before push, check the endpoint and head of the current branch, request user confirmation, and check the branch and head again immediately before execution. Cancel if the server is ahead or histories have diverged, and do not specify force or automatic merge. Branch creation and restoration, along with sending link targets and layers, follow Lore's normal behavior. SDK calls and state checks are not atomic and cannot prevent concurrent changes from other processes. Check the server revision after execution and indicate the possibility of a partial send on failure.
 
-プロジェクト作成画面は既存cloneの登録と新規cloneの準備を扱う。新規cloneのサーバーURLは直接入力するか、登録済みプロジェクトの接続先から選べる。候補を独立して保存せず、同じサーバーのプロジェクトがなくなれば候補からも消える。新規プロジェクトはサーバー・リポジトリ・フォルダーを登録し、共通の「サーバーから取得」で初回cloneする。clone済みなら同じボタンで更新する。プロジェクトはサーバー、リポジトリ、PC上のclone先を結びつけるChronicler独自の管理単位。空のclone先を使用し、失敗・中断時は自動再試行せず、フォルダーも自動削除しない。登録解除はclone先を削除しない。
+The project creation screen handles registering an existing clone and preparing a new clone. Enter the server URL for a new clone directly or select it from endpoints of registered projects. Do not save suggestions independently; they disappear when no project for the same server remains. A new project registers a server, repository, and folder, then performs its initial clone with the common “Get Latest” operation. Once cloned, the same button updates it. A project is a Chronicler-specific management unit that associates a server, repository, and clone destination on a PC. Use an empty clone destination. Do not retry automatically after failure or cancellation, and do not delete the folder automatically. Unregistering does not delete the clone destination.
 
-設定ファイルには認証情報を保存しない。Lore SDKが認証情報を管理する。設定ファイルが壊れている場合は上書きせず、別プロセスによる変更も検出して保存を拒否する。設定削除はログアウトではない。現時点ではログアウト機能やログイン処理のキャンセル機能はない。
+Do not store credentials in settings files. The Lore SDK manages credentials. If a settings file is corrupt, do not overwrite it; also detect modifications by another process and refuse to save. Deleting settings is not logout. Logout and cancellation of the login process are not currently supported.
 
-利用者の実環境ではSDK 0.12.0によるログインの成功を確認済み。リポジトリ一覧、clone、Get Latest、期限切れ後の再ログインは実環境で未検証。ログインの成功はリポジトリのアクセス権を保証しない。
+Login success with SDK 0.12.0 has been confirmed in a user's actual environment. Retrieving repository lists, cloning, Get Latest, and login again after expiration have not been verified there. Successful login does not guarantee repository access.
 
-## Loreの操作を実装するときの参照先（AI・開発者向け）
+## References for implementing Lore operations (for AI and developers)
 
-LoreのCLIコマンドに相当するGUI操作を追加するときは、コマンド名からSDKのAPIや挙動を推測せず、以下を確認する。
+When adding a GUI operation corresponding to a Lore CLI command, do not infer SDK APIs or behavior from the command name. Check the following:
 
-1. [Lore CLIのコマンド実装](https://github.com/EpicGames/lore/tree/main/lore-client/src/cli/commands)で、対象コマンドの引数、呼び出すLore API、出力を確認する。
-2. [Lore本体のC APIヘッダー](https://github.com/EpicGames/lore/blob/main/lore-capi/lore.h)と[本体の実装](https://github.com/EpicGames/lore/tree/main/lore/src)で、APIの引数、イベント、成功・失敗時の挙動を確認する。
-3. [C# SDKのREADME](https://github.com/EpicGames/lore-dotnet#readme)と[サンプル](https://github.com/EpicGames/lore-dotnet/tree/main/examples)で、C#からの呼び出し方を確認する。Chroniclerでの先行例は[ログイン処理](../../src/Chronicler/Authentication/LoreLoginService.cs)。
-4. 実際に使用する[プロジェクトのLoreVcsバージョン](../../src/Chronicler/Chronicler.csproj)にそのAPIがあることを確認する。上記の `main` は開発中の最新版なので、採用バージョンと挙動が異なる場合は、そのバージョンのSDK・Lore本体を優先する。
+1. In the [Lore CLI command implementations](https://github.com/EpicGames/lore/tree/main/lore-client/src/cli/commands), check the target command's arguments, the Lore APIs it calls, and its output.
+2. In [Lore's C API header](https://github.com/EpicGames/lore/blob/main/lore-capi/lore.h) and [the core implementation](https://github.com/EpicGames/lore/tree/main/lore/src), check API arguments, events, and behavior on success and failure.
+3. In the [C# SDK README](https://github.com/EpicGames/lore-dotnet#readme) and [samples](https://github.com/EpicGames/lore-dotnet/tree/main/examples), check how to invoke it from C#. For an existing Chronicler example, see the [login implementation](../../src/Chronicler/Authentication/LoreLoginService.cs).
+4. Confirm the behavior in the source of the [LoreVcs version used by this project](../../src/Chronicler/Chronicler.csproj).
 
-SDKのイベントはコールバック内で必要なデータを読み取り、UIの更新はUIスレッドに渡す。長時間の操作で画面をブロックせず、失敗を利用者に表示する。トークンやログインURLなどの機密情報をログや設定ファイルに保存しない。書き込みや破壊的な操作は、実装とテストを試用リポジトリで確認する。
+Read required data from SDK events inside callbacks, and dispatch UI updates to the UI thread. Do not block the UI during long-running operations, and show failures to the user. Do not store sensitive information such as tokens or login URLs in logs or settings files. Verify write and destructive operations in implementation and tests using a trial repository.
 
-## 今後の候補
+## Future candidates
 
-1. 実環境の試用リポジトリで一覧取得、clone、期限切れ時の再ログインを確認する。
-2. SDKによるローカルリポジトリのstatus取得を単体で検証する。
-3. フォルダー選択と変更ファイル一覧を表示する。scanはローカルの管理情報を更新する。
-4. 大量のファイルを想定し、一覧の仮想化とメモリ使用量を検証する。
-5. 試用リポジトリでプッシュの挙動を確認する。
+1. Verify repository list retrieval, cloning, and re-login after expiration in a trial repository in a real environment.
+2. Independently test retrieving local repository status through the SDK.
+3. Display folder selection and the list of changed files. Scanning updates local management data.
+4. Assume a large number of files and verify list virtualization and memory use.
+5. Verify push behavior in a trial repository.
 
-Stage／Unstageの実装は[issue #5](https://github.com/radicalgrimoire/chronicler/issues/5)で管理した。大量ファイルでの検証は[scanと操作時間](https://github.com/radicalgrimoire/chronicler/issues/8)および[メモリ使用量](https://github.com/radicalgrimoire/chronicler/issues/7)のイシューで管理する。
+Stage/Unstage implementation was tracked in [issue #5](https://github.com/radicalgrimoire/chronicler/issues/5). Testing with large numbers of files is tracked by the [scan and operation time](https://github.com/radicalgrimoire/chronicler/issues/8) and [memory usage](https://github.com/radicalgrimoire/chronicler/issues/7) issues.
 
-## メモリ計測
+## Memory measurement
 
-起動直後、アイドル時、大量ファイルのstatus取得中と取得後を、同じ環境・リポジトリで比較する。GUIとLoreのネイティブライブラリ双方の影響を考慮し、目標値は実測を踏まえて決める。
+Compare immediately after startup, while idle, during status retrieval for a large number of files, and after retrieval, using the same environment and repository. Consider the effects of both the GUI and Lore native library, and set target values based on measurements.

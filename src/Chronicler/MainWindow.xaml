@@ -11,7 +11,7 @@
         </Grid.RowDefinitions>
         <StackPanel Margin="0,0,0,20">
             <TextBlock Text="Chronicler" FontSize="26" FontWeight="SemiBold" />
-            <TextBlock Text="Lore サーバーとログイン" Margin="0,4,0,0" />
+            <TextBlock Text="Lore servers and sign-in" Margin="0,4,0,0" />
         </StackPanel>
 
         <Grid Grid.Row="1">
@@ -26,11 +26,11 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <TextBlock Text="保存済みサーバー" FontWeight="SemiBold" Margin="0,0,0,8" />
+                <TextBlock Text="Saved servers" FontWeight="SemiBold" Margin="0,0,0,8" />
                 <ListBox x:Name="ServerList" Grid.Row="1" DisplayMemberPath="Name"
                          SelectionChanged="ServerList_SelectionChanged"
-                         AutomationProperties.Name="保存済みサーバー" />
-                <Button x:Name="NewButton" Grid.Row="2" Content="新規サーバー" Margin="0,10,0,0"
+                         AutomationProperties.Name="Saved servers" />
+                <Button x:Name="NewButton" Grid.Row="2" Content="New server" Margin="0,10,0,0"
                         Padding="12,7" Click="NewButton_Click" />
             </Grid>
             <Grid Grid.Column="2">
@@ -41,33 +41,33 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-                <TextBlock Text="サーバー設定" FontSize="18" FontWeight="SemiBold" />
+                <TextBlock Text="Server settings" FontSize="18" FontWeight="SemiBold" />
                 <StackPanel Grid.Row="1" Margin="0,16,0,0">
-                    <TextBlock Text="表示名" />
+                    <TextBlock Text="Display name" />
                     <TextBox x:Name="NameInput" Margin="0,5,0,0" Padding="6"
-                             TextChanged="Inputs_TextChanged" AutomationProperties.Name="表示名" />
+                             TextChanged="Inputs_TextChanged" AutomationProperties.Name="Display name" />
                 </StackPanel>
                 <StackPanel Grid.Row="2" Margin="0,12,0,0">
-                    <TextBlock Text="サーバーURL" />
+                    <TextBlock Text="Server URL" />
                     <TextBox x:Name="UrlInput" Margin="0,5,0,0" Padding="6"
-                             TextChanged="Inputs_TextChanged" AutomationProperties.Name="サーバーURL" />
-                    <TextBlock Text="例: lore://server.example.com:41337" Margin="0,5,0,0"
+                             TextChanged="Inputs_TextChanged" AutomationProperties.Name="Server URL" />
+                    <TextBlock Text="Example: lore://server.example.com:41337" Margin="0,5,0,0"
                                Foreground="DimGray" />
                 </StackPanel>
                 <WrapPanel Grid.Row="3" Margin="0,18,0,0">
-                    <Button x:Name="SaveButton" Content="保存" Padding="16,7" Margin="0,0,8,8"
+                    <Button x:Name="SaveButton" Content="Save" Padding="16,7" Margin="0,0,8,8"
                             Click="SaveButton_Click" />
-                    <Button x:Name="RemoveButton" Content="削除" Padding="16,7" Margin="0,0,8,8"
+                    <Button x:Name="RemoveButton" Content="Delete" Padding="16,7" Margin="0,0,8,8"
                             Click="RemoveButton_Click" />
-                    <Button x:Name="LoginButton" Content="ログイン" Padding="16,7" Margin="0,0,8,8"
+                    <Button x:Name="LoginButton" Content="Sign in" Padding="16,7" Margin="0,0,8,8"
                             Click="LoginButton_Click" />
-                    <Button x:Name="ProjectsButton" Content="作業画面を開く" Padding="16,7" Margin="0,0,8,8"
+                    <Button x:Name="ProjectsButton" Content="Open workspace" Padding="16,7" Margin="0,0,8,8"
                             Click="ProjectsButton_Click" />
                 </WrapPanel>
                 <StackPanel Grid.Row="4" Margin="0,16,0,0">
                     <TextBlock x:Name="LoginStatus" TextWrapping="Wrap" />
                     <TextBlock x:Name="UserCodeText" Margin="0,8,0,0" TextWrapping="Wrap" />
-                    <Button x:Name="OpenBrowserButton" Content="ブラウザーをもう一度開く"
+                    <Button x:Name="OpenBrowserButton" Content="Open browser again"
                             HorizontalAlignment="Left" Padding="12,7" Margin="0,10,0,0"
                             Visibility="Collapsed" Click="OpenBrowserButton_Click" />
                 </StackPanel>

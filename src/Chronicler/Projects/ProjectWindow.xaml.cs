@@ -51,7 +51,7 @@ public partial class ProjectWindow : Window
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
             {
-                serverSettingsError = $"接続先ショートカットを読み込めません。ファイルは変更されていません。\n{ex.Message}";
+                serverSettingsError = $"Could not load connection shortcuts. The settings file was not changed.\n{ex.Message}";
             }
             foreach (var project in store.Load().OrderBy(project => project.ServerUrl, StringComparer.OrdinalIgnoreCase))
             {
@@ -61,11 +61,11 @@ public partial class ProjectWindow : Window
             }
             ServerUrlInput.ItemsSource = servers;
             available = true;
-            StatusText.Text = serverSettingsError ?? "フォルダーを指定してください。";
+            StatusText.Text = serverSettingsError ?? string.Empty;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
         {
-            StatusText.Text = $"プロジェクト設定を読み込めません。ファイルは変更されていません。\n{ex.Message}";
+            StatusText.Text = $"Could not load project settings. The settings file was not changed.\n{ex.Message}";
         }
         UpdateControls();
     }
@@ -82,7 +82,7 @@ public partial class ProjectWindow : Window
     {
         if (activeFolderReadVersion is not null)
         {
-            StatusText.Text = "フォルダーのサーバーURLを読み取り中です。完了までお待ちください。";
+            StatusText.Text = "Reading the folder's server URL. Please wait.";
             return;
         }
         var url = ServerUrlInput.SelectedItem is ServerShortcutOption shortcut
@@ -100,23 +100,23 @@ public partial class ProjectWindow : Window
         {
             if (!authenticate(url))
             {
-                StatusText.Text = "リポジトリ一覧の取得を中止しました。";
+                StatusText.Text = "Repository retrieval cancelled.";
                 return;
             }
-            StatusText.Text = "リポジトリ一覧を取得しています…";
+            StatusText.Text = "Retrieving repositories…";
             var names = await repositoryService.ListAsync(url);
             RepositoryList.ItemsSource = names;
             listedServerUrl = url;
-            StatusText.Text = names.Count == 0 ? "表示できるリポジトリはありません。" : $"{names.Count}件のリポジトリを取得しました。";
+            StatusText.Text = names.Count == 0 ? "No repositories available." : $"Retrieved {names.Count} repositories.";
         }
         catch (LoreError ex)
         {
-            StatusText.Text = $"一覧を取得できませんでした（Loreエラー {ex.ReturnCode}）。ログイン状態、アクセス権、接続と証明書を確認してください。";
+            StatusText.Text = $"Could not retrieve repositories (Lore error {ex.ReturnCode}). Check sign-in, permissions, connection, and certificates.";
         }
         catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException
             or BadImageFormatException or InvalidOperationException or ArgumentException or IOException)
         {
-            StatusText.Text = $"一覧を取得できませんでした（{ex.GetType().Name}）。SDKと実行環境を確認してください。";
+            StatusText.Text = $"Could not retrieve repositories ({ex.GetType().Name}). Check the SDK and environment.";
         }
         finally
         {
@@ -169,7 +169,7 @@ public partial class ProjectWindow : Window
 
     private async void BrowseButton_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new OpenFolderDialog { Title = "プロジェクトフォルダーを選択" };
+        var dialog = new OpenFolderDialog { Title = "Choose project folder" };
         if (dialog.ShowDialog(this) == true)
         {
             LocalPath.Text = dialog.FolderName;
@@ -183,7 +183,7 @@ public partial class ProjectWindow : Window
         if (activeFolderReadVersion is not null)
         {
             activeFolderReadVersion = null;
-            StatusText.Text = "フォルダーまたはサーバーURLを確認してください。";
+            StatusText.Text = "Check the folder or server URL.";
         }
     }
 
@@ -205,27 +205,27 @@ public partial class ProjectWindow : Window
             catch (FileNotFoundException) { return; }
             catch (DirectoryNotFoundException) { return; }
             if ((attributes & FileAttributes.Directory) == 0)
-                throw new InvalidOperationException("選択したフォルダーの .lore はフォルダーではありません。");
+                throw new InvalidOperationException("The selected folder's .lore entry is not a directory.");
 
             activeFolderReadVersion = version;
-            StatusText.Text = "フォルダーのサーバーURLを読み取り中です。";
+            StatusText.Text = "Reading the folder's server URL.";
             var url = await repositoryInfo.ReadServerUrlAsync(path);
             if (!IsCurrent()) return;
             if (!ServerProfileValidator.TryValidate("server", url, out var error))
                 throw new InvalidOperationException(error);
             ServerUrlInput.Text = url;
-            StatusText.Text = "LoreリポジトリのサーバーURLを読み取りました。";
+            StatusText.Text = "Read the Lore repository's server URL.";
         }
         catch (LoreError ex)
         {
             if (IsCurrent())
-                StatusText.Text = $"LoreのサーバーURLを読み取れません（Loreエラー {ex.ReturnCode}）。";
+                StatusText.Text = $"Could not read the Lore server URL (Lore error {ex.ReturnCode}).";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
             or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
         {
             if (IsCurrent())
-                StatusText.Text = $"LoreのサーバーURLを読み取れません: {ex.Message}";
+                StatusText.Text = $"Could not read the Lore server URL: {ex.Message}";
         }
         finally
         {
@@ -238,7 +238,7 @@ public partial class ProjectWindow : Window
     {
         if (activeFolderReadVersion is not null)
         {
-            StatusText.Text = "フォルダーのサーバーURLを読み取り中です。完了までお待ちください。";
+            StatusText.Text = "Reading the folder's server URL. Please wait.";
             return;
         }
         if (!ProjectValidator.TryNormalizePath(LocalPath.Text, out var path, out var error))
@@ -252,7 +252,7 @@ public partial class ProjectWindow : Window
         {
             var current = store.Load().ToList();
             if (current.Any(project => string.Equals(project.LocalPath, path, StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException("このフォルダーは既にプロジェクトとして登録されています。");
+                throw new InvalidOperationException("This folder is already registered as a project.");
 
             var lorePath = Path.Combine(path, ".lore");
             bool hasLore;
@@ -268,7 +268,7 @@ public partial class ProjectWindow : Window
                     throw new InvalidOperationException(error);
                 if (!authenticate(local.RemoteUrl))
                 {
-                    StatusText.Text = "プロジェクトの作成を中止しました。";
+                    StatusText.Text = "Project creation cancelled.";
                     return;
                 }
                 ProjectRepositoryInfo.Validate(await repositoryInfo.ReadLocalAsync(path), local.RemoteUrl, local.RepositoryId);
@@ -277,7 +277,7 @@ public partial class ProjectWindow : Window
                 var name = string.IsNullOrWhiteSpace(ProjectName.Text) ? remote.Name : ProjectName.Text.Trim();
                 project = new ProjectProfile(Guid.NewGuid(), name, Guid.NewGuid(), local.RemoteUrl,
                     remote.Name, path, local.RepositoryId);
-                if (!confirm($"サーバー: {local.RemoteUrl}\nリポジトリ: {remote.Name}\nフォルダー: {path}\n\n既存のcloneを登録しますか？", "プロジェクト作成"))
+                if (!confirm($"Server: {local.RemoteUrl}\nRepository: {remote.Name}\nFolder: {path}\n\nRegister this existing clone?", "Create project"))
                     return;
                 ProjectRepositoryInfo.Validate(await repositoryInfo.ReadLocalAsync(path), local.RemoteUrl, local.RepositoryId);
             }
@@ -286,35 +286,35 @@ public partial class ProjectWindow : Window
                 var exists = CloneDestination.ExistsAndIsEmpty(path);
                 if (!exists)
                 {
-                    var parent = Path.GetDirectoryName(path) ?? throw new InvalidOperationException("親フォルダーを確認できません。");
+                    var parent = Path.GetDirectoryName(path) ?? throw new InvalidOperationException("Could not determine the parent folder.");
                     if ((File.GetAttributes(parent) & FileAttributes.Directory) == 0)
-                        throw new InvalidOperationException("親フォルダーが存在しません。");
+                        throw new InvalidOperationException("The parent folder does not exist.");
                 }
                 if (listedServerUrl is null || RepositoryList.SelectedItem is not string repositoryName
                     || !ProjectValidator.IsValidRepositoryName(repositoryName) || string.IsNullOrWhiteSpace(ProjectName.Text))
-                    throw new InvalidOperationException("新規cloneにはサーバー、リポジトリ、プロジェクト名を指定してください。");
+                    throw new InvalidOperationException("Select a server and repository and enter a project name for the new clone.");
                 project = new ProjectProfile(Guid.NewGuid(), ProjectName.Text.Trim(), Guid.NewGuid(), listedServerUrl,
                     repositoryName, path, CloneState: ProjectCloneState.Pending);
-                if (!confirm($"サーバー: {listedServerUrl}\nリポジトリ: {repositoryName}\nフォルダー: {path}\n\nプロジェクトを作成しますか？ ファイルの取得は行いません。", "プロジェクト作成"))
+                if (!confirm($"Server: {listedServerUrl}\nRepository: {repositoryName}\nFolder: {path}\n\nCreate this project? Files will not be downloaded yet.", "Create project"))
                     return;
                 CloneDestination.ExistsAndIsEmpty(path);
             }
             current = store.Load().ToList();
             if (current.Any(item => string.Equals(item.LocalPath, path, StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException("このフォルダーは既にプロジェクトとして登録されています。");
+                throw new InvalidOperationException("This folder is already registered as a project.");
             current.Add(project);
             store.Save(current);
             CreatedProject = project;
-            StatusText.Text = "プロジェクトを作成しました。";
+            StatusText.Text = "Project created.";
         }
         catch (LoreError ex)
         {
-            StatusText.Text = $"リポジトリを確認できません（Loreエラー {ex.ReturnCode}）。ログイン状態、接続とアクセス権を確認してください。";
+            StatusText.Text = $"Could not verify the repository (Lore error {ex.ReturnCode}). Check sign-in, connection, and permissions.";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
             or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException or JsonException)
         {
-            StatusText.Text = $"プロジェクトを作成できません: {ex.Message}";
+            StatusText.Text = $"Could not create project: {ex.Message}";
         }
         finally
         {
@@ -328,7 +328,7 @@ public partial class ProjectWindow : Window
     {
         if (busy)
         {
-            StatusText.Text = "処理中はウィンドウを閉じられません。完了までお待ちください。";
+            StatusText.Text = "Cannot close while an operation is in progress. Please wait.";
             e.Cancel = true;
         }
 
@@ -338,6 +338,6 @@ public partial class ProjectWindow : Window
 
     private sealed record ServerShortcutOption(string Name, string Url)
     {
-        public override string ToString() => $"{Name}（{Url}）";
+        public override string ToString() => $"{Name}({Url})";
     }
 }

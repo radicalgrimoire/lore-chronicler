@@ -55,16 +55,16 @@ public sealed class LoreFileLockService : IFileLockService, IFileLockActionsServ
                         lock (sync) authError ??= message;
                     }
                 }).WaitAsync();
-                if (authError is not null) warning = $"取得者名を一部確認できません: {authError}";
+                if (authError is not null) warning = $"Could not resolve some lock owners: {authError}";
             }
             catch (LoreError ex)
             {
-                warning = $"取得者名を確認できません（Loreエラー {ex.ReturnCode}）: {ex.Message}";
+                warning = $"Could not resolve lock owners (Lore error {ex.ReturnCode}): {ex.Message}";
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
                 or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
             {
-                warning = $"取得者名を確認できません: {ex.Message}";
+                warning = $"Could not resolve lock owners: {ex.Message}";
             }
         }
 
@@ -77,7 +77,7 @@ public sealed class LoreFileLockService : IFileLockService, IFileLockActionsServ
             list.Add(new FileLockOwner(entry.Owner, name, entry.Branch));
         }
         if (warning is null && locks.Any(entry => !names.TryGetValue(entry.Owner, out var name) || string.IsNullOrWhiteSpace(name)))
-            warning = "一部の取得者名を確認できないため、ユーザーIDを表示しています。";
+            warning = "Some lock owners could not be resolved; user IDs are shown.";
         return new FileLockResult(files.ToDictionary(entry => entry.Key,
             entry => (IReadOnlyList<FileLockOwner>)entry.Value.ToArray(), StringComparer.OrdinalIgnoreCase), warning);
     }
@@ -108,9 +108,9 @@ public sealed class LoreFileLockService : IFileLockService, IFileLockActionsServ
                 lock (sync) queryError ??= message;
             }
         }).WaitAsync();
-        if (queryError is not null) throw new InvalidDataException($"ロック一覧を完全に取得できません: {queryError}");
+        if (queryError is not null) throw new InvalidDataException($"Could not retrieve all locks: {queryError}");
         if (expectedCount is null || expectedCount != (ulong)locks.Count)
-            throw new InvalidDataException("Loreからロック一覧を完全に取得できませんでした。");
+            throw new InvalidDataException("Lore did not return the complete lock list.");
 
         return locks;
     }
@@ -121,12 +121,12 @@ public sealed class LoreFileLockService : IFileLockService, IFileLockActionsServ
         var owner = await ReadCurrentOwnerAsync(globals);
         var entries = await QueryEntriesAsync(globals, owner);
         if (entries.Any(entry => entry.Owner != owner))
-            throw new InvalidDataException("ロック一覧に別のユーザーのロックが含まれています。");
+            throw new InvalidDataException("The lock list contains another user's lock.");
         return (IReadOnlyList<MyFileLock>)entries.Select(entry =>
         {
             var fullPath = LoreFileStatusService.ResolvePath(path, entry.Path);
             if (string.IsNullOrWhiteSpace(entry.Branch) || entry.Branch.All(c => c == '0'))
-                throw new InvalidDataException("ロックのブランチを確認できません。");
+                throw new InvalidDataException("Could not verify the lock's branch.");
             return new MyFileLock(fullPath, Path.GetRelativePath(path, fullPath), entry.Branch, owner);
         }).OrderBy(entry => entry.RelativePath, StringComparer.OrdinalIgnoreCase).ThenBy(entry => entry.Branch).ToArray();
     });
@@ -148,7 +148,7 @@ public sealed class LoreFileLockService : IFileLockService, IFileLockActionsServ
             }
         }).WaitAsync();
         if (error is not null || owners.Count != 1 || string.IsNullOrWhiteSpace(owners.Single()))
-            throw new InvalidOperationException($"ログイン中のユーザーを確認できません。ログインし直してください。\n{error}");
+            throw new InvalidOperationException($"Could not identify the signed-in user. Sign in again.\n{error}");
         return owners.Single();
     }
 
@@ -157,7 +157,7 @@ public sealed class LoreFileLockService : IFileLockService, IFileLockActionsServ
         var fullPath = ResolveLockTarget(path, file);
         var attributes = File.GetAttributes(fullPath);
         if ((attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
-            throw new InvalidOperationException("通常のファイルだけをロックできます。");
+            throw new InvalidOperationException("Only regular files can be locked.");
         using var globals = new LoreGlobalArgs { RepositoryPath = path, WorkingDirectory = Path.GetFullPath(path) };
         using var args = new LoreLockFileAcquireArgs { Paths = [fullPath] };
         string? error = null;
@@ -174,7 +174,7 @@ public sealed class LoreFileLockService : IFileLockService, IFileLockActionsServ
         }).WaitAsync();
         if (error is not null || completed.Count != 1
             || !string.Equals(fullPath, LoreFileStatusService.ResolvePath(path, completed[0]), StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"ロックの取得を確認できません。ロック一覧を再取得してください。\n{error}");
+            throw new InvalidOperationException($"Could not verify lock acquisition. Refresh the lock list.\n{error}");
     });
 
     public Task ReleaseAsync(string path, MyFileLock fileLock) => Task.Run(async () =>
@@ -183,7 +183,7 @@ public sealed class LoreFileLockService : IFileLockService, IFileLockActionsServ
         var mine = await QueryMineAsync(path);
         if (!mine.Any(entry => entry.OwnerId == fileLock.OwnerId && entry.Branch == fileLock.Branch
             && string.Equals(entry.FullPath, fullPath, StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidOperationException("選択したロックは現在のユーザーのロックではありません。一覧を再取得してください。");
+            throw new InvalidOperationException("The selected lock does not belong to the current user. Refresh the lock list.");
         using var globals = new LoreGlobalArgs { RepositoryPath = path, WorkingDirectory = Path.GetFullPath(path) };
         using var args = new LoreLockFileReleaseArgs
         {
@@ -203,7 +203,7 @@ public sealed class LoreFileLockService : IFileLockService, IFileLockActionsServ
         }).WaitAsync();
         if (error is not null || completed.Count != 1
             || !string.Equals(fullPath, LoreFileStatusService.ResolvePath(path, completed[0]), StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"ロックの解除を確認できません。一覧を再取得してください。\n{error}");
+            throw new InvalidOperationException($"Could not verify lock release. Refresh the lock list.\n{error}");
     });
 
     private static string ResolveLockTarget(string root, string file)
@@ -213,14 +213,14 @@ public sealed class LoreFileLockService : IFileLockService, IFileLockActionsServ
         var fullPath = LoreFileStatusService.ResolvePath(root, relative);
         var segments = Path.GetRelativePath(root, fullPath).Split(Path.DirectorySeparatorChar);
         if (segments.Any(segment => segment.Equals(".lore", StringComparison.OrdinalIgnoreCase)) || relative == ".")
-            throw new InvalidDataException("Loreの管理領域やルートフォルダーはロック対象にできません。");
+            throw new InvalidDataException("The repository root and Lore metadata cannot be locked.");
         var current = Path.GetFullPath(root);
         foreach (var segment in segments)
         {
             current = Path.Combine(current, segment);
             if ((File.Exists(current) || Directory.Exists(current))
                 && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
-                throw new InvalidDataException("リンクを含むパスはロック操作の対象にできません。");
+                throw new InvalidDataException("Paths containing links cannot be used for lock operations.");
         }
         return fullPath;
     }

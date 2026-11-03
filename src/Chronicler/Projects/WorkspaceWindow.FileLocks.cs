@@ -27,8 +27,8 @@ public partial class WorkspaceWindow
         myLocksNeedRefresh = true;
         MyLocksList.ItemsSource = null;
         MyLocksStatusText.Text = activeProject is { CloneState: ProjectCloneState.Ready }
-            ? "自分のロック一覧は未取得です。"
-            : activeProject is null ? "プロジェクトを選択してください。" : "初回取得後に表示できます。";
+            ? "Your locks have not been loaded."
+            : activeProject is null ? "Open a project." : "Available after initial download.";
     }
 
     private void LoadMyLocksIfVisible()
@@ -46,7 +46,7 @@ public partial class WorkspaceWindow
         myLocksLoading = true;
         myLocksNeedRefresh = false;
         MyLocksList.ItemsSource = null;
-        MyLocksStatusText.Text = $"「{project.Name}」で自分がロックしているファイルを取得しています…";
+        MyLocksStatusText.Text = $"Loading your locks in \"{project.Name}\"...";
         UpdateControls();
         try
         {
@@ -54,15 +54,15 @@ public partial class WorkspaceWindow
             var entries = await fileLockActionsService.QueryMineAsync(project.LocalPath);
             if (!IsCurrent()) return;
             MyLocksList.ItemsSource = entries;
-            MyLocksStatusText.Text = $"プロジェクト: {project.Name} / 自分のロック: {entries.Count} 件（全ブランチ）";
+            MyLocksStatusText.Text = $"Project: {project.Name} / Your locks: {entries.Count} (all branches)";
         }
         catch (LoreError ex)
         {
-            if (IsCurrent()) MyLocksStatusText.Text = $"ロック一覧を取得できません（Loreエラー {ex.ReturnCode}）。\n{ex.Message}";
+            if (IsCurrent()) MyLocksStatusText.Text = $"Could not retrieve locks (Lore error {ex.ReturnCode}).\n{ex.Message}";
         }
         catch (Exception ex) when (IsFileLockError(ex))
         {
-            if (IsCurrent()) MyLocksStatusText.Text = $"ロック一覧を取得できません: {ex.Message}";
+            if (IsCurrent()) MyLocksStatusText.Text = $"Could not retrieve locks: {ex.Message}";
         }
         finally
         {
@@ -106,7 +106,7 @@ public partial class WorkspaceWindow
     {
         if (busy || fileStatusRunning || activeProject is not { CloneState: ProjectCloneState.Ready } project
             || FileTree.SelectedItem is not TreeViewItem { Tag: TreeItemInfo { IsDirectory: false } file }) return;
-        await ChangeFileLockAsync(project, () => fileLockActionsService.AcquireAsync(project.LocalPath, file.Path), "ロック取得");
+        await ChangeFileLockAsync(project, () => fileLockActionsService.AcquireAsync(project.LocalPath, file.Path), "Lock acquisition");
     }
 
     private async void ReleaseMyLock_Click(object sender, RoutedEventArgs e)
@@ -114,29 +114,29 @@ public partial class WorkspaceWindow
         if (busy || fileStatusRunning || myLocksLoading
             || activeProject is not { CloneState: ProjectCloneState.Ready } project
             || MyLocksList.SelectedItem is not MyFileLock entry) return;
-        if (!confirm($"プロジェクト: {project.Name}\nファイル: {entry.RelativePath}\nブランチID: {entry.Branch}\n\nこのロックを解除しますか？",
-            "ロックの解除")) return;
-        await ChangeFileLockAsync(project, () => fileLockActionsService.ReleaseAsync(project.LocalPath, entry), "ロック解除");
+        if (!confirm($"Project: {project.Name}\nFile: {entry.RelativePath}\nBranch ID: {entry.Branch}\n\nRelease this lock?",
+            "Release lock")) return;
+        await ChangeFileLockAsync(project, () => fileLockActionsService.ReleaseAsync(project.LocalPath, entry), "Lock release");
     }
 
     private async Task ChangeFileLockAsync(ProjectProfile project, Func<Task> operation, string description)
     {
         busy = true;
         UpdateControls();
-        StatusText.Text = $"{description}中です…";
+        StatusText.Text = $"{description} in progress…";
         try
         {
             await ValidateLockRepositoryAsync(project);
             await operation();
-            StatusText.Text = $"{description}が完了しました。";
+            StatusText.Text = $"{description} completed.";
         }
         catch (LoreError ex)
         {
-            StatusText.Text = $"{description}に失敗しました（Loreエラー {ex.ReturnCode}）。ログイン状態とアクセス権を確認してください。\n{ex.Message}";
+            StatusText.Text = $"{description} failed (Lore error {ex.ReturnCode}). Check sign-in and permissions.\n{ex.Message}";
         }
         catch (Exception ex) when (IsFileLockError(ex))
         {
-            StatusText.Text = $"{description}に失敗しました: {ex.Message}";
+            StatusText.Text = $"{description} failed: {ex.Message}";
         }
         finally
         {

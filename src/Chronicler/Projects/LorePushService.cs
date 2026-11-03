@@ -39,12 +39,12 @@ public sealed class LorePushService(IPushBackend? backend = null) : IPushService
         var current = await PrepareAsync(path);
         if (!string.Equals(current.Branch, expected.Branch, StringComparison.Ordinal)
             || !string.Equals(current.LocalRevision, expected.LocalRevision, StringComparison.OrdinalIgnoreCase))
-            throw new PushException("確認後にブランチまたはローカルのリビジョンが変わったため、プッシュを中止しました。");
+            throw new PushException("The branch or local revision changed after confirmation. Push was cancelled.");
 
         var target = await backend.PushAsync(path, expected.Branch, progress);
         if (!string.Equals(target.Branch, expected.Branch, StringComparison.Ordinal)
             || !string.Equals(target.LocalRevision, expected.LocalRevision, StringComparison.OrdinalIgnoreCase))
-            throw new PushException("確認した対象と実際のプッシュ対象が異なります。サーバーの状態を確認してください。");
+            throw new PushException("The push target differs from the confirmed target. Check the server state.");
     }
 
     public async Task<bool> VerifyAsync(string path, LatestStatus expected)
@@ -60,19 +60,19 @@ public sealed class LorePushService(IPushBackend? backend = null) : IPushService
         if (!status.RemoteAvailable || !status.RemoteAuthorized)
         {
             if (status.RemoteAvailable && !status.RemoteAuthorized)
-                throw new RemoteAuthenticationRequiredException("サーバーへのログインが必要です。");
-            throw new PushException("サーバーの状態を確認できません。接続、ログイン状態、アクセス権を確認してください。");
+                throw new RemoteAuthenticationRequiredException("Sign-in to the server is required.");
+            throw new PushException("Could not verify server status. Check the connection, sign-in, and permissions.");
         }
         if (string.IsNullOrWhiteSpace(status.Branch) || status.Branch.Contains('@')
             || string.IsNullOrWhiteSpace(status.LocalRevision) || status.LocalRevision.All(c => c == '0'))
-            throw new PushException("プッシュするブランチまたはリビジョンを確認できません。");
+            throw new PushException("Could not verify the branch or revision to push.");
         if (status.RemoteBranchExists && status.RemoteAhead
             && !string.IsNullOrWhiteSpace(status.RemoteRevision) && !status.RemoteRevision.All(c => c == '0'))
-            throw new PushException("サーバーの履歴が先行または分岐しているため、プッシュを中止しました。履歴を確認してください。");
+            throw new PushException("The server history is ahead or has diverged. Push was cancelled; check the history.");
         if (status.RemoteBranchExists && (string.IsNullOrWhiteSpace(status.RemoteRevision)
             || (!status.RemoteRevision.All(c => c == '0') && !status.LocalAhead
                 && !string.Equals(status.LocalRevision, status.RemoteRevision, StringComparison.OrdinalIgnoreCase))))
-            throw new PushException("ローカルとサーバーの履歴の関係を確認できないため、プッシュを中止しました。");
+            throw new PushException("Could not determine the relationship between local and server histories. Push was cancelled.");
     }
 }
 
@@ -104,11 +104,11 @@ public sealed class LorePushBackend : IPushBackend
                 else if (ev.Tag == LoreEventTag.BRANCH_PUSH_FRAGMENT_PROGRESS)
                 {
                     var data = ev.GetData<LoreBranchPushFragmentProgressEventDataFFI>();
-                    progress.Report($"プッシュ中です…（データ: {data.Complete}/{data.Count}）");
+                    progress.Report($"Pushing… (data: {data.Complete}/{data.Count})");
                 }
             }
         }).WaitAsync();
-        if (error is not null) throw new InvalidDataException($"プッシュを完了できません: {error}");
-        return target ?? throw new InvalidDataException("プッシュ対象を確認できませんでした。");
+        if (error is not null) throw new InvalidDataException($"Could not complete push: {error}");
+        return target ?? throw new InvalidDataException("Could not verify the push target.");
     }
 }

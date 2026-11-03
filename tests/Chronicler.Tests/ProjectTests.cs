@@ -307,9 +307,9 @@ public sealed class ProjectTests : IDisposable
             window.Show();
             var input = Control<ComboBox>(window, "ServerUrlInput");
             Assert.Equal(2, input.Items.Count);
-            Assert.Equal($"Work（{server.RemoteUrl}）", input.Items[0].ToString());
+            Assert.Equal($"Work({server.RemoteUrl})", input.Items[0].ToString());
             input.SelectedIndex = 0;
-            Assert.Equal($"Work（{server.RemoteUrl}）", input.Text);
+            Assert.Equal($"Work({server.RemoteUrl})", input.Text);
             Click(window, "FetchButton");
             PumpDispatcher();
             Assert.Equal(server.RemoteUrl, authUrl);
@@ -321,7 +321,7 @@ public sealed class ProjectTests : IDisposable
             PumpDispatcher();
             Assert.Equal("lore://manual.example", service.ListedServerUrl);
             input.SelectedIndex = 0;
-            Assert.Equal($"Work（{server.RemoteUrl}）", input.Text);
+            Assert.Equal($"Work({server.RemoteUrl})", input.Text);
             Assert.Empty(Control<ListBox>(window, "RepositoryList").Items);
             Click(window, "FetchButton");
             PumpDispatcher();
@@ -343,7 +343,7 @@ public sealed class ProjectTests : IDisposable
             File.WriteAllText(Path.Combine(directory, "servers.json"), "{");
             var service = new FakeRepositoryService();
             var window = CreateWindow(service);
-            Assert.Contains("ショートカットを読み込めません", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Could not load connection shortcuts", Control<TextBlock>(window, "StatusText").Text);
             Control<ComboBox>(window, "ServerUrlInput").Text = "lore://manual.example";
             Click(window, "FetchButton");
             PumpDispatcher();
@@ -401,7 +401,7 @@ public sealed class ProjectTests : IDisposable
             PumpDispatcher();
             Assert.Null(service.ListedServerUrl);
             Assert.Empty(Control<ListBox>(window, "RepositoryList").Items);
-            Assert.Contains("中止", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Repository retrieval cancelled", Control<TextBlock>(window, "StatusText").Text);
             Assert.True(Control<Button>(window, "FetchButton").IsEnabled);
             window.Close();
         });
@@ -499,7 +499,7 @@ public sealed class ProjectTests : IDisposable
             Click(window, "FetchButton");
             Assert.Equal(0, authCalls);
             Assert.Null(service.ListedServerUrl);
-            Assert.Contains("読み取り中", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Reading the folder's server URL", Control<TextBlock>(window, "StatusText").Text);
             completion.SetResult("lore://other.example:41337");
             PumpDispatcher();
             Click(window, "FetchButton");
@@ -555,7 +555,7 @@ public sealed class ProjectTests : IDisposable
             Control<TextBox>(window, "LocalPath").Text = path;
             Click(window, "CreateButton");
             Assert.Empty(new ProjectSettingsStore(SettingsPath).Load());
-            Assert.Contains("空ではありません", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("clone destination", Control<TextBlock>(window, "StatusText").Text);
             Assert.Null(service.Path);
             if (type != "directory")
             {
@@ -605,7 +605,7 @@ public sealed class ProjectTests : IDisposable
             Control<TextBox>(window, "LocalPath").Text = path;
             Click(window, "CreateButton");
             Assert.Empty(new ProjectSettingsStore(SettingsPath).Load());
-            Assert.Contains("一致しません", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("server repository", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }
@@ -623,7 +623,7 @@ public sealed class ProjectTests : IDisposable
             Click(window, "CreateButton");
             Assert.Empty(new ProjectSettingsStore(SettingsPath).Load());
             Assert.Equal(0, info.RemoteCalls);
-            Assert.Contains("中止", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Project creation cancelled", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }

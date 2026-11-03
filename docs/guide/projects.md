@@ -1,49 +1,64 @@
-# プロジェクトの作成
+# Creating projects
 
-1. 作業画面の「新規プロジェクト」を押し、プロジェクト名を入力します。空欄の場合、リポジトリ名が使われます。入力した名前はリポジトリ選択時に上書きされません。
-2. プロジェクトフォルダーを選択するか、パスを直接入力します。既存cloneの場合は、フォルダーを選択したとき、または入力欄から移動したときにLoreの設定からサーバーURLを読み取ります。「確認して作成」を押すと、ログインまたは既存の認証情報で続行して、サーバー上に同じリポジトリIDがあることを確認します。ファイルの更新は行いません。
-3. 新規cloneの場合は、空の既存フォルダーまたは親フォルダーが存在する新しいパスを指定します。サーバーURL欄にURL（例: `lore://server.example.com:41337`）を入力するか、候補から接続先を選びます。ショートカットは「表示名（URL）」、ショートカットがない登録済みプロジェクトの接続先はURLで表示します。「リポジトリ一覧を取得」を押し、ログインまたは既存の認証情報で続行して対象を選びます。URLにはリポジトリのパスや認証情報を含めません。
-4. プロジェクト名を確認し、「確認して作成」を押します。この時点ではcloneせず、初回取得待ちのプロジェクトを登録します。
-5. 作成したプロジェクトを選び、「サーバーから取得」を押すと、確認後に初回cloneが始まります。
+In the workspace, use **New project** on the **Projects** tab to open the project creation screen.
 
-プロジェクト名は後から「名前を変更」で変更できます。
+![Workspace immediately after startup](../images/startup.png)
 
-「プロジェクト」タブの「接続先を管理」から、サーバーの表示名とURLをショートカットとして保存・編集・削除できます。表示名は新規登録・変更時に32文字以内です。以前のバージョンで登録した接続先も利用でき、32文字を超える旧表示名も読み込めます。ショートカットの登録時にサーバーへ接続せず、認証情報も保存しません。ショートカットを変更・削除しても既存プロジェクトの接続先やLoreの認証情報には影響しません。設定を読み込めない場合はエラーを表示してファイルを変更せず、新規プロジェクトではURLを直接入力できます。
+![Project creation with example values](../images/create-project.png)
 
-作業画面の右側には「プロジェクト」「変更」「更新ログ」「ロック一覧」のタブがあります。保存済みプロジェクトは「プロジェクト」タブで選び、「プロジェクトを切り替え」またはダブルクリックで開きます。左側にはそのPC上の作業フォルダー名に「(ローカル)」を付けたトップフォルダーと、その中のファイルやフォルダーが表示され、変更状態は右側の「変更」タブに表示します。プロジェクトを開いたときと「リフレッシュ」時にLoreでローカルを走査します。走査はLoreのローカル管理情報を更新しますが、サーバーには接続しません。外部での編集は次のリフレッシュで反映されます。無視対象はLoreの設定に従い、状態を確認できなかった場合はエラーを表示します。旧バージョンのプロジェクトでIDが未登録の場合は初回確認時にサーバーへ問い合わせます。表示はサーバー上のファイル状態ではありません。Lore内部の `.lore` フォルダーは表示せず、リンク先は展開しません。
+The repository names in the screenshot are sample data.
 
-「変更」タブは変更のある項目とその親フォルダーだけを、実際のフォルダー階層で表示します。フォルダーを開閉でき、選択メニューで「変更一覧」「未ステージ一覧」「ステージ済み一覧」を切り替えます。削除・追加・編集などをアイコンで示し、ステージ済みの項目は緑色と `✓`、未ステージの項目は黄色と `・` で表示します。削除済みファイルもツリーから選べます。未ステージのファイルやフォルダーを選んで「ステージ」を押すと、選択した変更をステージします。複数選択もできます。選択には表示中の項目だけが使われ、フィルターの切り替えやフォルダーの開閉時は選択が解除されます。フォルダーを選ぶと配下を再帰的に走査し、追加・編集・削除をステージします。フォルダーのマーカーは自身または配下の状態を示し、両方の状態がある場合は `✓・` で表示します。親フォルダーの表示は、それ自体がコミット対象であることを意味しません。フォルダーの操作前には、フィルターで見えない項目も含めた範囲の確認を表示します。リンクを直接選んでステージすることはできません。
+### Clone a repository
 
-ステージ済みの項目を選んで「アンステージ」を押すと、ステージから外れます。複数選択もできます。フォルダーをアンステージすると、表示フィルターや種類に関係なく配下のステージ済みの変更すべてが対象になります。アンステージしても作業ファイルの編集内容は破棄しません。操作後は変更とステージ状態を再取得し、失敗時や未解決の競合がある場合は状態を表示します。未解決の競合は一覧から除き、件数を表示します。ステージ・アンステージはローカル操作であり、サーバーへの送信やコミットは行いません。
+1. On the workspace's **Projects** tab, select **New project**.
+2. Enter a project name, or leave it blank to use the repository name suggested when you select a repository. A name you entered is not overwritten.
+3. Choose a project folder or enter its full path. Use an empty existing folder or a new path whose parent folder exists.
+4. Enter a server URL such as `lore://server.example.com:41337`, or select a [saved connection](server-connections.md). Do not include a repository path or credentials. Select **Get repository list**, continue with login or existing credentials, and select a repository.
+5. Check the project name and select **Review and create**. Confirm the details. This registers the project but does not clone it yet.
+6. With the new project open, select **Get latest** and confirm to start the initial clone.
 
-一覧の下にメッセージを入力して「コミット」を押すと、現在のブランチにローカルコミットを作成します。表示フィルターや一覧の選択に関係なく、ステージ済みの変更すべてが対象です。コミット欄には対象件数を常に表示し、実行前に件数とパスを確認します。確認画面に収まらない対象は「ステージ済み一覧」で確認できます。**ステージ後にファイルを再編集した場合、再ステージしなくてもコミット時のファイル内容が使われます。** コミット直前にステージ状態を再確認し、一覧から変わっていた場合や未解決の競合がある場合は中止します。空のメッセージではコミットできません。コミット後は一覧と更新ログを再取得します。成功時にメッセージ欄を消去し、失敗や中止時は残します。メッセージの下書きはプロジェクトごとにアプリ実行中のみ保持されます。
+### Register an existing clone
 
-コミットはサーバーへ送信しません。環境によってはローカルで使える認証情報が必要です。結果を確認できなかった場合は、重複コミットを避けるため、再試行前に更新ログとステージ状態を確認してください。
+Select **New project**, then choose the existing Lore workspace folder or enter its full path. The server URL is read from its Lore configuration when you choose the folder or leave the input field. Enter a project name, or leave it blank to use the repository name. Select **Review and create**, continue with login or existing credentials, and confirm the details. Chronicler verifies that the same repository ID exists on the server; registration does not update files.
 
-上部の「プッシュ」は、現在のローカルブランチのコミット済み履歴をサーバーに送信します。未コミットの変更は送信しません。事前に接続先と履歴を確認し、サーバーが先行または分岐していれば中止します。事前確認で認証が必要と判定された場合はブラウザーでログインを開始し、完了後に確認を一度やり直します。強制プッシュや自動マージは行いません。サーバーにブランチがない場合はLoreの通常動作で作成・復元されます。Loreのリンク先やレイヤーのリポジトリも送信される場合があります。確認画面に対象を表示し、完了後にサーバーのリビジョンを確認します。失敗や確認できなかった場合は一部が送信済みの可能性があるため、再試行前にサーバーの状態を確認してください。外部からの変更との同時実行は避けてください。
+You can change a project name later with “Rename.”
 
-同じタイミングでサーバーにLoreのファイルロックを問い合わせ、ロックされたファイルの右に鍵を表示します。鍵にマウスを乗せると取得者とブランチIDを確認できます。すべてのブランチを対象とし、複数のロックがある場合はすべて表示します。取得者名を確認できない場合はユーザーIDを表示し、警告します。ロック表示は前回の確認時点の状態で、最新の状態はリフレッシュで再確認してください。取得中や取得失敗は画面に表示し、未ロックとは扱いません。LoreのロックはWindows上のファイル使用状態とは別です。
+Use “Manage connections” next to “Sign in” at the top of the workspace to save, edit, or delete server display names and URLs as shortcuts. Display names can contain up to 32 characters when created or changed. Endpoints registered in earlier versions remain usable, and older display names longer than 32 characters can still be read. Registering a shortcut does not connect to the server or store credentials. Changing or deleting a shortcut does not affect the endpoint or Lore credentials for existing projects. If settings cannot be read, an error is displayed and the file is not changed; for a new project, you can enter the URL directly.
 
-左のエクスプローラーでファイルを右クリックして「ロック」を選ぶと、現在のブランチでそのファイルをロックします。取得・解除はプロジェクトの作業フォルダーを基準とし、Chroniclerの起動場所には依存しません。フォルダー、リンク、Loreの管理領域は対象外です。未追跡のファイルなどLoreがロックできない対象や、他のユーザーのロックとの競合はエラーを表示します。
+The right side of the workspace contains the “Projects,” “Changes,” “Update Log,” and “Locks” tabs. Select a saved project on the “Projects” tab and open it with “Switch Project” or by double-clicking. The left side shows a top-level folder named after the workspace folder on that PC with “(local)” appended, along with its files and folders. Change status appears on the “Changes” tab. Lore scans the local workspace when a project is opened and when “Refresh” is selected. The scan updates Lore's local management data but does not connect to the server. External edits appear after the next refresh. Ignored items follow the Lore configuration, and an error is displayed if status cannot be determined. For projects from older versions with no registered ID, the server is queried during the first verification. The display is not the file status on the server. Lore's internal `.lore` folder is not shown, and link targets are not expanded.
 
-右の「ロック一覧」タブには、開いているプロジェクトでログイン中の自分がロックしているファイルを、全ブランチ分表示します。ファイルパスとブランチIDを確認し、項目を選んで「選択したロックを解除」を押すと、確認後にそのブランチのロックだけを解除します。他のユーザーのロックや、別プロジェクトのロックは解除しません。タブを初めて開いたときに取得し、外部での変更は「一覧取得」で更新します。
+The “Changes” tab displays only changed items and their parent folders in the actual folder hierarchy. Folders can be expanded and collapsed, and the selection menu switches between “All Changes,” “Unstaged,” and “Staged.” Icons indicate deletions, additions, edits, and other changes. Staged items appear in green with `✓`; unstaged items appear in yellow with `・`. Deleted files can also be selected from the tree. Select unstaged files or folders and choose “Stage” to stage the selected changes. Multiple selection is supported. Only displayed items are used for selection; changing the filter or expanding or collapsing a folder clears the selection. Selecting a folder recursively scans its contents and stages additions, edits, and deletions. A folder marker indicates its own or its descendants' status; `✓・` appears if both statuses exist. Displaying a parent folder does not mean that it is itself a commit target. Before operating on a folder, the application shows the scope of the operation, including items hidden by the filter. Links cannot be selected and staged directly.
 
-ロックの取得・解除・一覧取得にはサーバー接続と認証が必要です。失敗時はエラーを表示し、自動で取得・解除を再実行しません。必要なら上部の「ログイン」を使ってから再操作してください。取得・解除の後は、失敗した場合も含めてロック一覧と左のロックアイコンを再取得します。取得結果を確認できなかった場合は、再実行前に一覧を更新してください。実サーバーでの動作は、許可された試用リポジトリで確認してください。
+Select staged items and choose “Unstage” to remove them from the staging area. Multiple selection is supported. When you unstage a folder, all staged changes in its descendants are included regardless of their type or the display filter. Unstaging does not discard edits to workspace files. After an operation, the application retrieves changes and staging state again, and shows the state if the operation fails or unresolved conflicts exist. Unresolved conflicts are omitted from the list and their count is displayed. Staging and unstaging are local operations; they do not send changes to the server or create commits.
 
-「更新ログ」には開いているプロジェクトの現在のローカルブランチのリビジョン履歴を、最新から最大100件表示します。リビジョン番号、メッセージ、作成者、日時とリビジョンIDを表示し、履歴の表示に必要なデータがローカルにない場合はサーバーから取得します。初回取得待ちのプロジェクトではclone後に表示できます。外部で更新された履歴は「履歴を更新」で再読み込みできます。
+Enter a message below the list and choose “Commit” to create a local commit on the current branch. All staged changes are included, regardless of the display filter or list selection. The commit area always shows the target count and confirms the count and paths before execution. You can inspect targets that do not fit in the confirmation dialog in “Staged.” **If you edit a file again after staging it, its contents at commit time are used even if you do not stage it again.** The staging state is checked again immediately before committing; the operation is canceled if it changed from the list or unresolved conflicts exist. An empty message cannot be committed. After committing, the application retrieves the list and update log again. On success, the message field is cleared; it is retained on failure or cancellation. Message drafts are retained per project only while the application is running.
 
-プロジェクトを切り替えたときと初回cloneの完了後にブランチを取得し、現在のブランチを表示します。「一覧取得」でもローカルとサーバーのブランチを再取得できます。ブランチを選んで「切り替え」を押すと、確認後に作業ファイルを更新します。サーバー一覧を取得できない場合は、その旨を表示し、取得できたローカルのブランチのみ表示します。ローカルに存在するブランチはローカルのリビジョンに切り替えるため、サーバーの最新状態にするには切り替え後に「サーバーから取得」を使います。サーバーにのみ存在するブランチの切り替えには接続と認証が必要です。
+Commits are not sent to the server. Depending on the environment, credentials usable locally may be required. If the result cannot be confirmed, check the update log and staging state before retrying to avoid duplicate commits.
 
-切り替えでは強制上書きやリセットを使わず、未コミットの変更を保持できるかはLoreが判断します。ステージ済みの変更や衝突する変更があると切り替えに失敗する場合があります。失敗時も一部のファイルが変更された可能性があるため、画面に表示された状態とローカルのファイルを確認してください。
+“Push” at the top sends committed history on the current local branch to the server. It does not send uncommitted changes. It checks the endpoint and history in advance, and cancels if the server is ahead or the histories have diverged. If the prerequisite check determines that authentication is required, browser login starts and the check is retried once after it completes. It does not force-push or merge automatically. If the branch does not exist on the server, Lore creates or restores it through its normal behavior. Lore link targets and layer repositories may also be sent. A confirmation dialog shows the targets, and the server revision is checked after completion. If it fails or cannot be confirmed, some changes may already have been sent, so check the server state before retrying. Avoid running it concurrently with external changes.
 
-「サーバーから取得」は、初回取得待ちの場合はcloneを行い、clone済みの場合は現在のブランチについてサーバーの最新リビジョンを確認し、Loreのsyncで作業ファイルを更新します。ファイルが追加・変更・削除される場合があります。ローカルとサーバーの履歴が分岐している場合やローカルの履歴が先行している場合、サーバーを確認できない場合は中止します。自動マージやローカル変更の強制リセットは行いません。処理中のキャンセルはできません。失敗時も一部のファイルが変更された可能性があるため、ローカルの状態を確認してください。取得対象は確認時点のサーバーのリビジョンです。
+Right-click a file in the explorer on the left and select “Lock” to lock that file on the current branch. Acquisition and release use the project's workspace folder as their base and do not depend on the directory from which Chronicler was started. Folders, links, and Lore management areas are excluded. An error is shown for targets Lore cannot lock, such as untracked files, or when another user's lock conflicts.
 
-「Submit」は未実装のため使用できません。サーバー上のツリー、チェックアウトなども未実装です。
+The “Locks” tab on the right lists files locked by the currently logged-in user in the open project across all branches. Review the file path and branch ID, select an item, then choose “Release selected lock” to release only that branch's lock after confirmation. It does not release other users' locks or locks in other projects. Locks are retrieved the first time the tab is opened; use “Retrieve list” to refresh changes made externally.
 
-プロジェクトはLoreリポジトリとPC上の作業フォルダーを結びつけるChronicler独自の設定です。同じリポジトリを別のフォルダーにcloneして複数登録できます。プロジェクト情報はPCごとの `%LOCALAPPDATA%\Chronicler\projects.json` に保存します。
+Acquiring, releasing, and listing locks require a server connection and authentication. Errors are displayed on failure, and acquisition or release is not retried automatically. If needed, use “Login” at the top before trying again. After acquisition or release, the lock list and lock icons on the left are retrieved again, including after a failure. If the result of an acquisition cannot be confirmed, refresh the list before trying again. Verify behavior on an actual server in a trial repository approved by your administrator.
 
-空でないフォルダーへの初回cloneは開始しません。clone開始後に失敗または中断した場合、途中のフォルダーは自動削除せず、自動再試行もしません。利用者が内容を確認し、必要なら登録を削除してからプロジェクトを作成し直してください。cloneが正常に完了したことを確認できる場合は、既存cloneとして登録し直せます。プロジェクトの登録を削除しても、ローカルフォルダーやサーバー上のデータは削除しません。
+Errors and warnings while retrieving lock icons are shown in the workspace status area at the bottom.
 
-プロジェクト切り替え時にはLoreの接続先とリポジトリIDを登録情報と照合し、一致しない場合は中止します。Get Latestの前にもローカルとサーバーの情報を確認します。以前のバージョンで登録したプロジェクトは、初回切り替え時にサーバーでリポジトリ情報を確認してIDを登録します。その際は接続とログインが必要です。Chroniclerは不一致を修復するためにLoreの設定やIDを書き換えません。別のリポジトリに切り替える場合は新たにcloneしてください。
+“Update Log” displays up to 100 revisions, newest first, from the current local branch of the open project. It shows the revision number, message, author, date and time, and revision ID. If data required to display history is not available locally, it is retrieved from the server. For a project waiting for its initial retrieval, history is available after cloning. Use “Refresh history” to reload history updated externally.
 
-リポジトリ一覧、clone、Get Latestの実環境での互換性・権限は未検証です。まずは管理者が許可した試用リポジトリと空きフォルダーで確認してください。clone処理のキャンセル機能はまだありません。
+Above the file tree, the open project's name and server URL appear alongside its authentication status and branch controls. Branches are retrieved when switching projects, after the initial clone completes, and when the user chooses “Get list”; the current branch is shown above the selection menu. The menu displays branch names only. Select a branch and choose “Switch” to update workspace files after confirmation. If the server list cannot be retrieved, that fact is displayed and only the local branches that could be retrieved are shown. A branch that exists locally is switched to its local revision, so use “Get latest” after switching to obtain the server's latest state. Switching to a branch that exists only on the server requires connectivity and authentication.
+
+Switching does not use forced overwrite or reset; Lore determines whether uncommitted changes can be retained. Switching can fail if staged changes or conflicting changes exist. Even after a failure, some files may have changed, so check the state shown in the application and the local files.
+
+“Get latest” clones a project waiting for its initial retrieval. For an existing clone, it checks the server's latest revision for the current branch and updates workspace files through Lore sync. Files may be added, changed, or deleted. The operation is canceled if local and server histories have diverged, local history is ahead, or the server cannot be checked. It does not automatically merge or forcibly reset local changes. It cannot be canceled while in progress. After an attempted update, the branch list is reloaded; if it cannot be reloaded, an error is shown instead of a potentially stale selection. Even after a failure, some files may have changed, so check the local state. The retrieval target is the server revision at the time of confirmation.
+
+“Submit” is not implemented and cannot be used. The tree on the server, checkout, and related features are also not implemented.
+
+A project is a Chronicler-specific setting that associates a Lore repository with a workspace folder on a PC. You can clone the same repository into different folders and register it more than once. Project information is stored per PC in `%LOCALAPPDATA%\Chronicler\projects.json`.
+
+The initial clone does not start in a non-empty folder. If cloning fails or is interrupted after it begins, the partial folder is not deleted or retried automatically. Review its contents, then delete the registration and create the project again if necessary. If you can confirm that the clone completed successfully, you can register it again as an existing clone. Deleting a project registration does not delete the local folder or data on the server.
+
+When switching projects, Chronicler compares the Lore endpoint and repository ID with the registered information and cancels if they do not match. It also checks local and server information before Get latest. For projects registered by earlier versions, it verifies the repository information on the server and registers the ID during the first switch. This requires connectivity and login. Chronicler does not rewrite Lore settings or IDs to repair mismatches. Clone the repository again to switch to a different repository.
+
+Compatibility and permissions for retrieving repository lists, cloning, and Get latest have not been verified in a production environment. First verify them in an administrator-approved trial repository and an empty folder. Clone cancellation is not yet implemented.

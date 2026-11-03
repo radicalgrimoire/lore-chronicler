@@ -19,7 +19,7 @@ public partial class LoginWindow : Window
         this.service = service ?? new LoreLoginService();
         this.browser = browser ?? new LoginBrowser();
         InitializeComponent();
-        ServerText.Text = $"サーバー: {serverUrl}";
+        ServerText.Text = $"Server: {serverUrl}";
         if (autoStart)
         {
             Loaded += (_, _) => Login_Click(this, new RoutedEventArgs());
@@ -30,7 +30,7 @@ public partial class LoginWindow : Window
     {
         busy = true;
         LoginButton.IsEnabled = ContinueButton.IsEnabled = CancelButton.IsEnabled = false;
-        StatusText.Text = "ログインを開始しています…";
+        StatusText.Text = "Starting sign-in…";
         try
         {
             var progress = new Progress<LoginProgress>(OnProgress);
@@ -40,12 +40,12 @@ public partial class LoginWindow : Window
         }
         catch (LoreError ex)
         {
-            StatusText.Text = $"ログインに失敗しました（Loreエラー {ex.ReturnCode}）。接続と証明書を確認してください。";
+            StatusText.Text = $"Sign-in failed (Lore error {ex.ReturnCode}). Check the connection and certificate.";
         }
         catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException
             or BadImageFormatException or InvalidOperationException or ArgumentException or System.IO.IOException)
         {
-            StatusText.Text = $"ログインできません: {ex.Message}";
+            StatusText.Text = $"Could not sign in: {ex.Message}";
         }
         finally
         {
@@ -64,18 +64,18 @@ public partial class LoginWindow : Window
         {
             if (!LoginBrowser.IsSafeUrl(progress.Url))
             {
-                StatusText.Text = "安全なHTTPS認証先ではないため、ブラウザーを開けません。";
+                StatusText.Text = "Cannot open the browser because the authentication URL is not secure HTTPS.";
                 return;
             }
             var first = loginUrl is null;
             loginUrl = progress.Url;
-            CodeText.Text = string.IsNullOrEmpty(progress.UserCode) ? string.Empty : $"認証コード: {progress.UserCode}";
+            CodeText.Text = string.IsNullOrEmpty(progress.UserCode) ? string.Empty : $"Authorization code: {progress.UserCode}";
             BrowserButton.Visibility = Visibility.Visible;
             if (first) OpenBrowser();
         }
         else if (progress.RemainingSeconds is { } remaining)
         {
-            StatusText.Text = $"ブラウザーでログインを完了してください（残り約{remaining}秒）。";
+            StatusText.Text = $"Complete sign-in in your browser (about {remaining} seconds remaining).";
         }
     }
 
@@ -85,11 +85,11 @@ public partial class LoginWindow : Window
         try
         {
             browser.Open(loginUrl);
-            StatusText.Text = "ブラウザーでログインを完了してください。";
+            StatusText.Text = "Complete sign-in in your browser.";
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
         {
-            StatusText.Text = "ブラウザーを開けませんでした。既定のブラウザーを確認して再試行してください。";
+            StatusText.Text = "Could not open the browser. Check your default browser and try again.";
         }
     }
 
@@ -100,7 +100,7 @@ public partial class LoginWindow : Window
         if (busy)
         {
             e.Cancel = true;
-            StatusText.Text = "ログイン処理中です。完了までお待ちください。";
+            StatusText.Text = "Sign-in is in progress. Please wait.";
         }
     }
 }

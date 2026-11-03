@@ -38,6 +38,22 @@ public sealed class WorkspaceTests : IDisposable
     }
 
     [Fact]
+    public void ServerAddressIsBlankWhenProjectSettingsCannotBeRead()
+    {
+        RunSta(() =>
+        {
+            Directory.CreateDirectory(directory);
+            var path = Path.Combine(directory, "projects.json");
+            File.WriteAllText(path, "{invalid json");
+            var window = CreateWorkspaceWindow(server, new ProjectSettingsStore(path), new UnusedRepositoryService());
+            Assert.Empty(Control<TextBlock>(window, "ActiveProjectText").Text);
+            Assert.NotEmpty(Control<TextBlock>(window, "StatusText").Text);
+            Assert.False(Control<Button>(window, "CreateProjectButton").IsEnabled);
+            window.Close();
+        });
+    }
+
+    [Fact]
     public void WorkspaceTabsPreserveProjectSelectionAndOperations()
     {
         RunSta(() =>
@@ -55,24 +71,38 @@ public sealed class WorkspaceTests : IDisposable
             var stage = Control<TabItem>(window, "StageTab");
             var log = Control<TabItem>(window, "UpdateLogTab");
             var list = Control<ListBox>(window, "ProjectList");
+            var login = Control<Button>(window, "LoginButton");
+            var manageServers = Control<Button>(window, "ManageServersButton");
+            var toolbar = Assert.IsType<WrapPanel>(login.Parent);
+            Assert.Same(toolbar, manageServers.Parent);
+            Assert.Equal(toolbar.Children.IndexOf(login) + 1, toolbar.Children.IndexOf(manageServers));
+            Assert.True(manageServers.IsVisible);
             Assert.Equal(4, tabs.Items.Count);
             Assert.Same(projects, tabs.SelectedItem);
-            Assert.Equal("プロジェクト", projects.Header);
-            Assert.Equal("変更", stage.Header);
-            Assert.Equal("更新ログ", log.Header);
+            Assert.Equal("Projects", projects.Header);
+            Assert.Equal("Changes", stage.Header);
+            Assert.Equal("Update log", log.Header);
+            Assert.Equal("Get latest", Control<Button>(window, "GetLatestButton").Content);
+            Assert.Empty(Control<TextBlock>(window, "ActiveProjectText").Text);
+            Assert.Equal("Branch:", Control<TextBlock>(window, "CurrentBranchText").Text);
             list.SelectedIndex = 0;
+            Assert.Empty(Control<TextBlock>(window, "ActiveProjectText").Text);
             Click(window, "SwitchProjectButton");
+            Assert.Equal($"Project ({server.RemoteUrl})", Control<TextBlock>(window, "ActiveProjectText").Text);
+            Assert.Equal("Branch:", Control<TextBlock>(window, "CurrentBranchText").Text);
+            Assert.Contains("Get latest", Control<TextBlock>(window, "StatusText").Text);
             var status = Control<TextBlock>(window, "StatusText").Text;
 
             tabs.SelectedItem = stage;
             PumpDispatcher();
             Assert.True(Assert.IsType<Grid>(stage.Content).IsVisible);
-            Assert.Contains("初回取得後", Control<TextBox>(window, "StageStatusText").Text);
+            Assert.True(manageServers.IsVisible);
+            Assert.Contains("Available after initial download", Control<TextBox>(window, "StageStatusText").Text);
             tabs.SelectedItem = log;
             PumpDispatcher();
             Assert.True(Assert.IsType<Grid>(log.Content).IsVisible);
-            Assert.Contains("初回取得後", Control<TextBox>(window, "HistoryStatus").Text);
-            Assert.Equal("Project", Control<TextBlock>(window, "ActiveProjectText").Text);
+            Assert.Contains("initial download", Control<TextBox>(window, "HistoryStatus").Text);
+            Assert.Equal($"Project ({server.RemoteUrl})", Control<TextBlock>(window, "ActiveProjectText").Text);
             Assert.Equal(status, Control<TextBlock>(window, "StatusText").Text);
 
             tabs.SelectedItem = projects;
@@ -83,7 +113,7 @@ public sealed class WorkspaceTests : IDisposable
             Assert.True(Control<Button>(window, "SwitchProjectButton").IsEnabled);
             Click(window, "RenameProjectButton");
             Assert.Equal("Renamed", Assert.IsType<ProjectProfile>(list.SelectedItem).Name);
-            Assert.Equal("Renamed", Control<TextBlock>(window, "ActiveProjectText").Text);
+            Assert.Equal($"Renamed ({server.RemoteUrl})", Control<TextBlock>(window, "ActiveProjectText").Text);
             Assert.Equal("Renamed", Assert.Single(new ProjectSettingsStore(Path.Combine(directory, "projects.json")).Load()).Name);
             window.Close();
         });
@@ -111,7 +141,7 @@ public sealed class WorkspaceTests : IDisposable
             var getLatest = Control<Button>(window, "GetLatestButton");
             var push = Control<Button>(window, "PushButton");
             Assert.Equal(3, list.Items.Count);
-            Assert.Contains("選択されていません", Control<TextBlock>(window, "ActiveProjectText").Text);
+            Assert.Empty(Control<TextBlock>(window, "ActiveProjectText").Text);
             Assert.Empty(tree.Items);
             Assert.False(refresh.IsEnabled);
             Assert.False(getLatest.IsEnabled);
@@ -119,16 +149,16 @@ public sealed class WorkspaceTests : IDisposable
 
             list.SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
-            Assert.Equal("First", Control<TextBlock>(window, "ActiveProjectText").Text);
-            Assert.Equal("first (ローカル)", Assert.IsType<TreeViewItem>(tree.Items[0]).Header);
+            Assert.Equal($"First ({server.RemoteUrl})", Control<TextBlock>(window, "ActiveProjectText").Text);
+            Assert.Equal("first (local)", Assert.IsType<TreeViewItem>(tree.Items[0]).Header);
             Assert.True(refresh.IsEnabled);
             Assert.True(getLatest.IsEnabled);
             Assert.True(push.IsEnabled);
 
             list.SelectedIndex = 1;
             Click(window, "SwitchProjectButton");
-            Assert.Equal("Second", Control<TextBlock>(window, "ActiveProjectText").Text);
-            Assert.Equal("second (ローカル)", Assert.IsType<TreeViewItem>(tree.Items[0]).Header);
+            Assert.Equal($"Second ({server.RemoteUrl})", Control<TextBlock>(window, "ActiveProjectText").Text);
+            Assert.Equal("second (local)", Assert.IsType<TreeViewItem>(tree.Items[0]).Header);
             WaitForChildren(tree, "second.txt");
             var root = Assert.IsType<TreeViewItem>(tree.Items[0]);
             Assert.DoesNotContain(root.Items.Cast<TreeViewItem>(),
@@ -141,7 +171,8 @@ public sealed class WorkspaceTests : IDisposable
             WaitForChildren(tree, "new.txt");
 
             Click(window, "RemoveProjectButton");
-            Assert.Contains("選択されていません", Control<TextBlock>(window, "ActiveProjectText").Text);
+            Assert.Empty(Control<TextBlock>(window, "ActiveProjectText").Text);
+            Assert.Equal("Branch:", Control<TextBlock>(window, "CurrentBranchText").Text);
             Assert.Empty(tree.Items);
             Assert.False(refresh.IsEnabled);
             Assert.True(File.Exists(Path.Combine(secondPath, "second.txt")));
@@ -161,10 +192,13 @@ public sealed class WorkspaceTests : IDisposable
             store.Save([new ProjectProfile(Guid.NewGuid(), "Latest", server.Id, server.RemoteUrl, "repo", path)]);
             var service = new FakeLatestService();
             var fileStatus = new FakeFileStatusService();
+            var branches = new FakeBranchService();
             var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true, service,
-                new FakeProjectRepositoryInfo(), fileStatusService: fileStatus);
+                new FakeProjectRepositoryInfo(), branchService: branches, fileStatusService: fileStatus);
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
+            Assert.Equal("Branch: main", Control<TextBlock>(window, "CurrentBranchText").Text);
+            Assert.Equal("main", Assert.IsType<BranchEntry>(Control<ComboBox>(window, "BranchList").SelectedItem).Name);
             Click(window, "GetLatestButton");
             Assert.Equal(path, service.Path);
             Assert.False(Control<Button>(window, "GetLatestButton").IsEnabled);
@@ -172,12 +206,15 @@ public sealed class WorkspaceTests : IDisposable
             Assert.False(Control<Button>(window, "SwitchProjectButton").IsEnabled);
             Assert.False(Control<ListBox>(window, "ProjectList").IsEnabled);
             window.Close();
-            Assert.Contains("処理中", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("operation is in progress", Control<TextBlock>(window, "StatusText").Text);
             File.WriteAllText(Path.Combine(path, "downloaded.txt"), "new");
             service.Completion.SetResult(new LatestStatus("main", "abc", "abc", true, true, true, false, false));
             PumpDispatcher();
             Assert.True(Control<Button>(window, "GetLatestButton").IsEnabled);
-            Assert.Contains("更新しました", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Branch \"main\" was updated", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Equal("Branch: main", Control<TextBlock>(window, "CurrentBranchText").Text);
+            Assert.Equal("main", Assert.IsType<BranchEntry>(Control<ComboBox>(window, "BranchList").SelectedItem).Name);
+            Assert.Equal(2, branches.ListCalls);
             WaitForChildren(Control<TreeView>(window, "FileTree"), "downloaded.txt");
             Assert.Equal([path, path], fileStatus.Paths);
             window.Close();
@@ -194,16 +231,49 @@ public sealed class WorkspaceTests : IDisposable
             store.Load();
             store.Save([new ProjectProfile(Guid.NewGuid(), "Latest", server.Id, server.RemoteUrl, "repo", path)]);
             var service = new FakeLatestService();
-            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true, service, new FakeProjectRepositoryInfo());
+            var branches = new FakeBranchService();
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true, service,
+                new FakeProjectRepositoryInfo(), branchService: branches);
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
             Click(window, "GetLatestButton");
+            branches.Completion.SetResult();
             File.WriteAllText(Path.Combine(path, "partial.txt"), "partial");
-            service.Completion.SetException(new LatestSyncException("履歴が分岐しています。"));
+            service.Completion.SetException(new LatestSyncException("Update failed."));
             PumpDispatcher();
-            Assert.Contains("分岐", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Update failed", Control<TextBlock>(window, "StatusText").Text);
             Assert.True(Control<Button>(window, "GetLatestButton").IsEnabled);
+            Assert.Equal("Branch: feature", Control<TextBlock>(window, "CurrentBranchText").Text);
+            Assert.Equal("feature", Assert.IsType<BranchEntry>(Control<ComboBox>(window, "BranchList").SelectedItem).Name);
+            Assert.Equal(2, branches.ListCalls);
             WaitForChildren(Control<TreeView>(window, "FileTree"), "partial.txt");
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void LatestReportsBranchRefreshFailureWithoutHidingUpdateResult()
+    {
+        RunSta(() =>
+        {
+            var path = CreateRepository("latest-branch-error", "existing.txt");
+            var store = new ProjectSettingsStore(Path.Combine(directory, "projects.json"));
+            store.Load();
+            store.Save([new ProjectProfile(Guid.NewGuid(), "Latest", server.Id, server.RemoteUrl, "repo", path)]);
+            var latest = new FakeLatestService();
+            var branches = new FakeBranchService();
+            var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
+                latest, new FakeProjectRepositoryInfo(), branchService: branches);
+            Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
+            Click(window, "SwitchProjectButton");
+            Click(window, "GetLatestButton");
+            branches.ListFailure = new IOException("branch refresh failed");
+            latest.Completion.SetResult(new LatestStatus("main", "abc", "abc", true, true, true, false, false));
+            PumpDispatcher();
+            Assert.Equal("Branch:", Control<TextBlock>(window, "CurrentBranchText").Text);
+            Assert.Null(Control<ComboBox>(window, "BranchList").SelectedItem);
+            Assert.Contains("Branch \"main\" was updated", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("branch refresh failed", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }
@@ -244,8 +314,8 @@ public sealed class WorkspaceTests : IDisposable
             Click(window, "SwitchProjectButton");
             list.SelectedIndex = 1;
             Click(window, "SwitchProjectButton");
-            Assert.Equal("First", Control<TextBlock>(window, "ActiveProjectText").Text);
-            Assert.Contains("確認できません", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Equal($"First ({server.RemoteUrl})", Control<TextBlock>(window, "ActiveProjectText").Text);
+            Assert.Contains("Could not verify the local Lore workspace", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }
@@ -295,8 +365,7 @@ public sealed class WorkspaceTests : IDisposable
             Click(window, "LoginButton");
             Assert.Equal(otherUrl, authUrl);
             Click(window, "SwitchProjectButton");
-            Assert.Equal("Other", Control<TextBlock>(window, "ActiveProjectText").Text);
-            Assert.Contains(otherUrl, Control<TextBlock>(window, "ServerText").Text);
+            Assert.Equal($"Other ({otherUrl})", Control<TextBlock>(window, "ActiveProjectText").Text);
             Assert.Equal(0, info.RemoteCalls);
             window.Close();
         });
@@ -334,9 +403,9 @@ public sealed class WorkspaceTests : IDisposable
             var saved = Assert.Single(new ProjectSettingsStore(settingsPath).Load());
             Assert.Equal(ProjectCloneState.Ready, saved.CloneState);
             Assert.Equal("Project", saved.Name);
-            Assert.Equal("Project", Control<TextBlock>(window, "ActiveProjectText").Text);
+            Assert.Equal($"Project ({server.RemoteUrl})", Control<TextBlock>(window, "ActiveProjectText").Text);
             Assert.Equal(info.RepositoryId, saved.RepositoryId);
-            Assert.Contains("main", Control<TextBlock>(window, "CurrentBranchText").Text);
+            Assert.Equal("Branch: main", Control<TextBlock>(window, "CurrentBranchText").Text);
             Assert.Equal(1, branches.ListCalls);
             Click(window, "GetLatestButton");
             Assert.Equal(path, latest.Path);
@@ -360,7 +429,7 @@ public sealed class WorkspaceTests : IDisposable
             var latest = new FakeLatestService
             {
                 EnsureRemoteAuthorized = _ => ++authorizationChecks == 1
-                    ? Task.FromException(new RemoteAuthenticationRequiredException("認証が必要です。"))
+                    ? Task.FromException(new RemoteAuthenticationRequiredException("Authentication required."))
                     : Task.CompletedTask,
                 GetLatest = (_, _) => Task.FromResult(new LatestStatus("main", "local", "remote", true, true, true, false, true))
             };
@@ -377,7 +446,7 @@ public sealed class WorkspaceTests : IDisposable
             Assert.Equal(1, authenticationCalls);
             Assert.Equal(2, authorizationChecks);
             Assert.Equal(1, latest.GetLatestCalls);
-            Assert.Contains("更新しました", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Branch \"main\" was updated", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }
@@ -429,7 +498,7 @@ public sealed class WorkspaceTests : IDisposable
             Click(window, "GetLatestButton");
             Assert.Null(clone.Path);
             Assert.Equal(ProjectCloneState.Pending, Assert.Single(new ProjectSettingsStore(Path.Combine(directory, "projects.json")).Load()).CloneState);
-            Assert.Contains("空ではありません", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Could not start initial download", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }
@@ -454,7 +523,7 @@ public sealed class WorkspaceTests : IDisposable
             Click(window, "GetLatestButton");
             Assert.Null(clone.Path);
             Assert.Null(latest.Path);
-            Assert.Contains("cloneしてください", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Could not verify the repository", Control<TextBlock>(window, "StatusText").Text);
             Assert.Equal("test", File.ReadAllText(Path.Combine(path, "keep.txt")));
             window.Close();
         });
@@ -478,7 +547,7 @@ public sealed class WorkspaceTests : IDisposable
             Click(window, "GetLatestButton");
             Assert.Null(latest.Path);
             Assert.Equal(0, info.RemoteCalls);
-            Assert.Contains("一致しません", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Could not verify the repository", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }
@@ -497,10 +566,10 @@ public sealed class WorkspaceTests : IDisposable
             var window = CreateWorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true, latest, info);
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
-            info.RemoteError = new InvalidOperationException("サーバーに接続できません。");
+            info.RemoteError = new InvalidOperationException("Remote verification failed.");
             Click(window, "GetLatestButton");
             Assert.Null(latest.Path);
-            Assert.Contains("サーバーに接続できません", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Remote verification failed", Control<TextBlock>(window, "StatusText").Text);
             Assert.Equal("test", File.ReadAllText(Path.Combine(path, "keep.txt")));
             window.Close();
         });
@@ -521,11 +590,11 @@ public sealed class WorkspaceTests : IDisposable
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
             Assert.Null(Assert.Single(new ProjectSettingsStore(settingsPath).Load()).RepositoryId);
-            Assert.Contains("一致しません", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Could not verify the local Lore workspace", Control<TextBlock>(window, "StatusText").Text);
             info.ServerRepositoryId = null;
             Click(window, "SwitchProjectButton");
             Assert.Equal(info.RepositoryId, Assert.Single(new ProjectSettingsStore(settingsPath).Load()).RepositoryId);
-            Assert.Equal("Legacy", Control<TextBlock>(window, "ActiveProjectText").Text);
+            Assert.Equal($"Legacy ({server.RemoteUrl})", Control<TextBlock>(window, "ActiveProjectText").Text);
             window.Close();
         });
     }
@@ -553,7 +622,9 @@ public sealed class WorkspaceTests : IDisposable
             Assert.Equal(2, branches.ListCalls);
             Assert.Contains("main", Control<TextBlock>(window, "CurrentBranchText").Text);
             var list = Control<ComboBox>(window, "BranchList");
+            Assert.Equal(nameof(BranchEntry.Name), list.DisplayMemberPath);
             Assert.Equal(2, list.Items.Count);
+            Assert.Equal("main", Assert.IsType<BranchEntry>(list.SelectedItem).Name);
             Assert.False(Control<Button>(window, "SwitchBranchButton").IsEnabled);
             list.SelectedIndex = 1;
             Click(window, "SwitchBranchButton");
@@ -562,7 +633,7 @@ public sealed class WorkspaceTests : IDisposable
             branches.Completion.SetResult();
             PumpDispatcher();
             Assert.Contains("feature", Control<TextBlock>(window, "CurrentBranchText").Text);
-            Assert.Contains("切り替えました", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Switched to branch \"feature\".", Control<TextBlock>(window, "StatusText").Text);
             Assert.True(Control<Button>(window, "SwitchProjectButton").IsEnabled);
             Assert.Equal([path, path], fileStatus.Paths);
             window.Close();
@@ -584,7 +655,7 @@ public sealed class WorkspaceTests : IDisposable
                 branchService: branches);
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
-            Assert.Equal("ブランチ: 確認できません", Control<TextBlock>(window, "CurrentBranchText").Text);
+            Assert.Equal("Branch:", Control<TextBlock>(window, "CurrentBranchText").Text);
             Assert.Contains("branch unavailable", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
@@ -606,12 +677,12 @@ public sealed class WorkspaceTests : IDisposable
             Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
             Click(window, "RefreshBranchesButton");
-            Assert.Contains("サーバーの一覧は取得できません", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Could not retrieve server branches", Control<TextBlock>(window, "StatusText").Text);
             Control<ComboBox>(window, "BranchList").SelectedIndex = 1;
             Click(window, "SwitchBranchButton");
             branches.Completion.SetException(new LoreVcs.LoreError(42));
             PumpDispatcher();
-            Assert.Contains("一部変更", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Files may have changed", Control<TextBlock>(window, "StatusText").Text);
             Assert.Contains("main", Control<TextBlock>(window, "CurrentBranchText").Text);
             Assert.Equal(3, branches.ListCalls);
             window.Close();
@@ -662,7 +733,7 @@ public sealed class WorkspaceTests : IDisposable
             info.RepositoryId = "ABCDEF1234567890ABCDEF1234567890";
             Click(window, "SwitchBranchButton");
             Assert.Null(branches.Switched);
-            Assert.Contains("一致しません", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Could not switch branches", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }
@@ -730,7 +801,7 @@ public sealed class WorkspaceTests : IDisposable
         private readonly BranchEntry feature = new("22222222222222222222222222222222", "feature", true, true, false);
         public BranchEntry? Switched { get; private set; }
         public bool RemoteAvailable { get; init; } = true;
-        public Exception? ListFailure { get; init; }
+        public Exception? ListFailure { get; set; }
         public int ListCalls { get; private set; }
         public TaskCompletionSource Completion { get; } = new();
 

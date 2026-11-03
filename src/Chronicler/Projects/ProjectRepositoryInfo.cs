@@ -23,7 +23,7 @@ public sealed class ProjectRepositoryInfo : IProjectRepositoryInfo
         var attributes = File.GetAttributes(Path.Combine(path, ".lore"));
         if ((attributes & FileAttributes.Directory) == 0)
         {
-            throw new InvalidOperationException("選択したフォルダーにLoreリポジトリがありません。");
+            throw new InvalidOperationException("The selected folder does not contain a Lore repository.");
         }
         string? remote = null;
         using var globals = new LoreGlobalArgs { RepositoryPath = path, Offline = true };
@@ -37,7 +37,7 @@ public sealed class ProjectRepositoryInfo : IProjectRepositoryInfo
         }).WaitAsync();
         if (string.IsNullOrWhiteSpace(remote))
         {
-            throw new InvalidOperationException("Loreの接続先を確認できません。");
+            throw new InvalidOperationException("Could not verify the Lore server URL.");
         }
         return remote;
     }
@@ -57,7 +57,7 @@ public sealed class ProjectRepositoryInfo : IProjectRepositoryInfo
         }).WaitAsync();
         if (string.IsNullOrEmpty(id) || id.All(c => c == '0'))
         {
-            throw new InvalidOperationException("Loreの接続先またはリポジトリIDを確認できません。");
+            throw new InvalidOperationException("Could not verify the Lore server URL or repository ID.");
         }
         return new LocalRepositoryInfo(remote, id);
     }
@@ -75,7 +75,7 @@ public sealed class ProjectRepositoryInfo : IProjectRepositoryInfo
                 result = new RemoteRepositoryInfo(data.RemoteUrl, Convert.ToHexString(data.Id.Data), data.Name);
             }
         }).WaitAsync();
-        return result ?? throw new InvalidOperationException("サーバー上のリポジトリ情報を確認できません。");
+        return result ?? throw new InvalidOperationException("Could not verify the repository on the server.");
     }
 
     public static bool SameServer(string a, string b)
@@ -93,11 +93,11 @@ public sealed class ProjectRepositoryInfo : IProjectRepositoryInfo
     {
         if (!SameServer(local.RemoteUrl, serverUrl))
         {
-            throw new InvalidOperationException("接続先がプロジェクトのサーバーと一致しません。接続先が変わっている可能性があります。");
+            throw new InvalidOperationException("The server URL does not match the project. The endpoint may have changed.");
         }
         if (repositoryId is not null && !string.Equals(local.RepositoryId, repositoryId, StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("リポジトリIDがプロジェクトの登録情報と一致しません。");
+            throw new InvalidOperationException("The repository ID does not match the project registration.");
         }
     }
 
@@ -107,7 +107,7 @@ public sealed class ProjectRepositoryInfo : IProjectRepositoryInfo
             || !string.Equals(local.RepositoryId, remote.RepositoryId, StringComparison.OrdinalIgnoreCase)
             || !ProjectValidator.IsValidRepositoryName(remote.Name))
         {
-            throw new InvalidOperationException("サーバー上のリポジトリ情報がローカルと一致しません。");
+            throw new InvalidOperationException("The server repository information does not match the local repository.");
         }
     }
 }

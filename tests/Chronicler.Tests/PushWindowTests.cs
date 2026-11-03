@@ -26,9 +26,11 @@ public sealed class PushWindowTests : IDisposable
             Click(window, "PushButton");
             Assert.Contains("main", confirmation);
             Assert.Contains(Status.LocalRevision, confirmation);
-            Assert.Contains("リンク先", confirmation);
-            Assert.Contains("未コミット", confirmation);
-            Assert.Contains("作成または復元", confirmation);
+            Assert.Contains("Local revision", confirmation);
+            Assert.Contains("Committed changes", confirmation);
+            Assert.Contains("Uncommitted changes", confirmation);
+            Assert.Contains("missing server branch may be created or restored", confirmation);
+            Assert.Contains("link targets and layer repositories", confirmation);
             Assert.Equal(1, service.Pushes);
             Assert.False(Control<Button>(window, "PushButton").IsEnabled);
             Assert.False(Control<Button>(window, "GetLatestButton").IsEnabled);
@@ -36,7 +38,7 @@ public sealed class PushWindowTests : IDisposable
             pending.SetResult();
             PumpDispatcher();
             Assert.Equal(1, service.Verifications);
-            Assert.Contains("プッシュしました", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Changes were pushed", Control<TextBlock>(window, "StatusText").Text);
             Assert.True(Control<Button>(window, "PushButton").IsEnabled);
             window.Close();
         });
@@ -52,15 +54,15 @@ public sealed class PushWindowTests : IDisposable
             SelectProject(window);
             Click(window, "PushButton");
             Assert.Equal(0, service.Pushes);
-            Assert.Contains("中止", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Push cancelled.", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
 
-            service = new FakePushService { PrepareError = new PushException("サーバーの履歴が先行") };
+            service = new FakePushService { PrepareError = new PushException("Remote history diverged") };
             window = CreateWindow(service, (_, _) => true);
             SelectProject(window);
             Click(window, "PushButton");
             Assert.Equal(0, service.Pushes);
-            Assert.Contains("先行", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Remote history diverged", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }
@@ -78,7 +80,7 @@ public sealed class PushWindowTests : IDisposable
             pending.SetException(new IOException("network failure"));
             PumpDispatcher();
             Assert.Equal(0, service.Verifications);
-            Assert.Contains("一部が送信", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("The push failed.", Control<TextBlock>(window, "StatusText").Text);
             Assert.Contains("network failure", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
 
@@ -86,8 +88,8 @@ public sealed class PushWindowTests : IDisposable
             window = CreateWindow(service, (_, _) => true);
             SelectProject(window);
             Click(window, "PushButton");
-            Assert.Contains("確認できません", Control<TextBlock>(window, "StatusText").Text);
-            Assert.DoesNotContain("プッシュしました", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("could not be verified", Control<TextBlock>(window, "StatusText").Text);
+            Assert.DoesNotContain("Changes were pushed", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }
@@ -103,7 +105,7 @@ public sealed class PushWindowTests : IDisposable
             repositoryInfo.ServerRepositoryId = "ABCDEF1234567890ABCDEF1234567890";
             Click(window, "PushButton");
             Assert.Equal(0, service.Pushes);
-            Assert.Contains("一致しません", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Unable to prepare the push", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }
@@ -118,7 +120,7 @@ public sealed class PushWindowTests : IDisposable
             var service = new FakePushService
             {
                 Prepare = () => ++prepareCalls == 1
-                    ? Task.FromException<LatestStatus>(new RemoteAuthenticationRequiredException("サーバーへのログインが必要です。"))
+                    ? Task.FromException<LatestStatus>(new RemoteAuthenticationRequiredException("Sign-in to the server is required."))
                     : Task.FromResult(Status)
             };
             var window = CreateWindow(service, (_, _) => true, _ =>

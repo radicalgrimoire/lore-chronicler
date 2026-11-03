@@ -6,10 +6,7 @@ using LoreVcs.Types.Events;
 
 namespace Chronicler.Projects;
 
-public sealed record BranchEntry(string Id, string Name, bool IsLocal, bool IsRemote, bool IsCurrent)
-{
-    public string DisplayName => $"{Name}{(IsCurrent ? " (現在)" : "")} [{(IsLocal && IsRemote ? "ローカル / サーバー" : IsLocal ? "ローカル" : "サーバー")}]";
-}
+public sealed record BranchEntry(string Id, string Name, bool IsLocal, bool IsRemote, bool IsCurrent);
 
 public sealed record BranchListResult(IReadOnlyList<BranchEntry> Branches, bool RemoteAvailable);
 
@@ -46,7 +43,7 @@ public sealed class LoreBranchService : IBranchService
                 group.Any(entry => entry.IsRemote), group.Any(entry => entry.IsCurrent)))
             .OrderBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase).ToArray();
         if (branches.Any(entry => string.IsNullOrWhiteSpace(entry.Name) || entry.Id.All(c => c == '0')))
-            throw new InvalidOperationException("ブランチ情報を確認できませんでした。");
+            throw new InvalidOperationException("Could not verify branch information.");
         return new BranchListResult(branches, remoteSeen != 0);
     }
 
@@ -68,7 +65,7 @@ public sealed class LoreBranchService : IBranchService
                 conflict |= ev.GetData<LoreRevisionSyncRevisionEventDataFFI>().FlagConflict;
             }
         }).WaitAsync();
-        if (!completed) throw new InvalidOperationException("切り替え結果のブランチIDを確認できませんでした。");
-        if (conflict) throw new InvalidOperationException("切り替え中に競合が発生しました。ローカルの状態を確認してください。");
+        if (!completed) throw new InvalidOperationException("Could not verify the branch ID after switching.");
+        if (conflict) throw new InvalidOperationException("A conflict occurred while switching. Check the local state.");
     }
 }

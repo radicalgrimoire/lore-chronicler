@@ -21,7 +21,7 @@ public static class ProjectValidator
     {
         if (!ServerProfileValidator.TryValidate("server", serverUrl, out _) || !IsValidRepositoryName(name))
         {
-            throw new ArgumentException("サーバーURLまたはリポジトリ名が不正です。");
+            throw new ArgumentException("The server URL or repository name is invalid.");
         }
         return $"{serverUrl.TrimEnd('/')}/{name}";
     }
@@ -31,7 +31,7 @@ public static class ProjectValidator
         path = string.Empty;
         if (string.IsNullOrWhiteSpace(value) || !Path.IsPathFullyQualified(value))
         {
-            error = "clone先は絶対パスで指定してください。";
+            error = "Specify an absolute path for the clone destination.";
             return false;
         }
         try
@@ -39,13 +39,13 @@ public static class ProjectValidator
             path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(value.Trim()));
             if (Path.GetPathRoot(path) == path)
             {
-                error = "ドライブのルートはclone先に指定できません。";
+                error = "A drive root cannot be used as a clone destination.";
                 return false;
             }
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            error = "clone先のパスが不正です。";
+            error = "The clone destination path is invalid.";
             return false;
         }
         error = string.Empty;

@@ -1,13 +1,13 @@
-# ログイン
+# Login
 
-新規プロジェクトの作成時は、サーバーURLを入力して「リポジトリ一覧を取得」を押すと、ログインまたは既存の認証情報で続行する画面が表示されます。既存cloneを登録する場合も、確認時に同じ画面が表示されます。既存プロジェクトの場合は一覧で選び、上部の「ログイン」を押します。ログインする場合は既定のブラウザーで完了し、Chroniclerに戻ります。認証コードが表示された場合はブラウザーで確認または入力します。ブラウザーを開けなかった場合は再試行できます。
+When creating a new project, enter the server URL and select “Retrieve repository list” to open a screen where you can log in or continue with existing credentials. The same screen appears when verifying an existing clone for registration. For an existing project, select it from the list and choose “Login” at the top. Complete login in the default browser, then return to Chronicler. If an authorization code is displayed, confirm or enter it in the browser. You can retry if the browser could not be opened.
 
-接続には、そのサーバーおよび認証環境と互換性のあるLore SDKと、信頼されたTLS証明書が必要です。環境により公開証明書をWindowsの信頼ストアに登録し、起動するPowerShellで `SSL_CERT_FILE` を指定する必要があります。証明書の信頼設定は管理者の手順に従い、証明書検証を無効にしないでください。
+Connections require a Lore SDK version compatible with the server and authentication environment, and a trusted TLS certificate. Depending on the environment, you may need to add the public certificate to the Windows trust store and set `SSL_CERT_FILE` in the PowerShell instance you use to start the application. Follow your administrator's certificate-trust procedure; do not disable certificate validation.
 
-認証情報はChroniclerのプロジェクト設定や接続先ショートカットには保存せず、Lore SDKに管理を任せます。トークンの期限切れ後は、認証方式によって再度ブラウザーログインが必要です。
+Chronicler does not store credentials in project settings or endpoint shortcuts; it leaves credential management to the Lore SDK. After a token expires, browser login may be required again, depending on the authentication method.
 
-作業画面右上のサーバーアドレスのすぐ下には、プロジェクト一覧で選択したプロジェクトの認証状態を右揃えで表示します。「認証済み（期限 YYYY/MM/DD HH:mm）」「未ログイン」「期限切れ」を表示し、期限は日本時間です。保存済みのリポジトリ用トークンと、同じ認証先のログイン用トークンのうち、遅い方の期限を使います。期限が取得できない場合は「認証情報あり（期限不明）」、初回取得前は「初回取得後に確認できます」、読み取りに失敗した場合は確認エラーを表示します。
+Above the file tree, the open project's name and server address are shown together, followed by its authentication status and branch controls. Both project and authentication information are blank when no project is open. The status shows “Authenticated: YYYY-MM-DD HH:mm”, “Not signed in”, or “Expired”; expiration times use Japan Standard Time. It uses whichever expiration is later: the saved repository token or the login token for the same authentication endpoint. If the expiration cannot be retrieved, it shows “Credentials available (expiration unknown)”; before the initial download, it shows “Available after initial download”; and it shows an inspection error if reading fails.
 
-状態表示はローカルの保存済み認証情報だけを読み、サーバーへの接続確認や自動ログインは行いません。プロジェクト選択後、ログイン操作後、画面が再びアクティブになったとき、および1分ごとに更新します。有効期限内でも、認証の取り消しや接続・権限の問題で操作に失敗することがあります。
+The status display reads only locally saved credentials; it does not verify connectivity to the server or log in automatically. It updates when the open project changes, after a login action, when the window becomes active again, and every minute. Selecting a different project in the list does not change the displayed status until you open it. The **Sign in** button still acts on the project selected in the list. Operations can still fail before expiration because authentication was revoked or because of connectivity or permission issues.
 
-サーバーからの最新取得やプッシュの事前確認で、Lore SDKが認証されていない状態を明示した場合は、ブラウザーでログインを開始します。ログインが完了すると、その操作の事前確認を一度だけやり直します。接続エラーや権限不足は自動ログインの対象ではありません。実際の取得・プッシュが始まった後に失敗した場合は自動再実行しません。
+If the Lore SDK explicitly indicates that authentication is required while checking prerequisites for Get latest or push, browser login starts. After login completes, it retries that operation's prerequisite check once. Connection errors and insufficient permissions do not trigger automatic login. It does not automatically retry if the actual Get latest or push fails after starting.

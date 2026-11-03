@@ -46,7 +46,7 @@ public sealed class FileLockActionsWindowTests : IDisposable
             Assert.Equal([(project.LocalPath, entry.FullPath)], actions.Acquired);
             Assert.Equal(2, icons.Paths.Count);
             Assert.Single(Control<ListBox>(window, "MyLocksList").Items);
-            Assert.Contains("ロック取得が完了", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Lock acquisition completed", Control<TextBlock>(window, "StatusText").Text);
             Control<TabControl>(window, "WorkspaceTabs").SelectedItem = Control<TabItem>(window, "FileLocksTab");
             var list = Control<ListBox>(window, "MyLocksList");
             list.SelectedIndex = 0;
@@ -59,7 +59,7 @@ public sealed class FileLockActionsWindowTests : IDisposable
             Assert.Equal([(project.LocalPath, entry)], actions.Released);
             Assert.Empty(list.Items);
             Assert.False(Control<Button>(window, "ReleaseMyLockButton").IsEnabled);
-            Assert.Contains("ロック解除が完了", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Lock release completed", Control<TextBlock>(window, "StatusText").Text);
             Assert.Equal(3, icons.Paths.Count);
             window.Close();
         });
@@ -134,7 +134,7 @@ public sealed class FileLockActionsWindowTests : IDisposable
             repositoryInfo.RepositoryId = "ABCDEF1234567890ABCDEF1234567890";
             AcquireMenu(window).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             Assert.Empty(actions.Acquired);
-            Assert.Contains("一致しません", Control<TextBlock>(window, "StatusText").Text);
+            Assert.Contains("Lock acquisition failed", Control<TextBlock>(window, "StatusText").Text);
             Assert.False(Control<Button>(window, "ReleaseMyLockButton").IsEnabled);
             window.Close();
         });
@@ -204,7 +204,7 @@ public sealed class FileLockActionsWindowTests : IDisposable
             SelectProject(window, 1);
             Assert.Empty(Control<ListBox>(window, "MyLocksList").Items);
             Assert.Equal([first.LocalPath], actions.Queried);
-            Assert.Contains("初回取得後", Control<TextBox>(window, "MyLocksStatusText").Text);
+            Assert.Contains("Available after initial download", Control<TextBox>(window, "MyLocksStatusText").Text);
             Assert.False(Control<Button>(window, "RefreshMyLocksButton").IsEnabled);
             window.Close();
         });

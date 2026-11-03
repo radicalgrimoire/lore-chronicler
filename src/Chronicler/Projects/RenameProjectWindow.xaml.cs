@@ -18,7 +18,7 @@ public partial class RenameProjectWindow : Window
     {
         if (string.IsNullOrWhiteSpace(ProjectName))
         {
-            ErrorText.Text = "プロジェクト名を入力してください。";
+            ErrorText.Text = "Enter a project name.";
             return;
         }
         DialogResult = true;

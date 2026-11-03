@@ -51,13 +51,13 @@ public partial class MainWindow : Window
                 servers.Add(server);
             }
             settingsAvailable = true;
-            FooterStatus.Text = "サーバーを保存してからログインしてください。起動時に接続は行いません。";
+            FooterStatus.Text = "Save a server before signing in. No connection is made at startup.";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
         {
             settingsAvailable = false;
-            FooterStatus.Text = "サーバー設定を読み込めません。設定ファイルは変更されていません。";
-            MessageBox.Show(this, $"{FooterStatus.Text}\n\n{ex.Message}", "設定の読み込みエラー",
+            FooterStatus.Text = "Could not load server settings. The settings file was not changed.";
+            MessageBox.Show(this, $"{FooterStatus.Text}\n\n{ex.Message}", "Settings error",
                 MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
@@ -90,7 +90,7 @@ public partial class MainWindow : Window
 
     private bool ConfirmDiscard()
     {
-        return !dirty || MessageBox.Show(this, "保存していない変更を破棄しますか？", "未保存の変更",
+        return !dirty || MessageBox.Show(this, "Discard unsaved changes?", "Unsaved changes",
             MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;
     }
 
@@ -138,13 +138,13 @@ public partial class MainWindow : Window
         var remoteUrl = UrlInput.Text.Trim();
         if (!ServerProfileValidator.TryValidate(name, remoteUrl, out var error))
         {
-            MessageBox.Show(this, error, "入力エラー", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, error, "Invalid input", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
         if (servers.Any(s => s.Id != activeServer?.Id
             && string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)))
         {
-            MessageBox.Show(this, "同じ表示名のサーバーが既にあります。", "入力エラー",
+            MessageBox.Show(this, "A server with this display name already exists.", "Invalid input",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
@@ -171,7 +171,7 @@ public partial class MainWindow : Window
         ServerList.SelectedItem = profile;
         updatingInputs = false;
         SetForm(profile);
-        FooterStatus.Text = "サーバー情報を保存しました。";
+        FooterStatus.Text = "Server saved.";
     }
 
     private void RemoveButton_Click(object sender, RoutedEventArgs e)
@@ -184,8 +184,8 @@ public partial class MainWindow : Window
         {
             return;
         }
-        if (MessageBox.Show(this, "このサーバー設定を削除しますか？\nLoreの認証情報は削除されません。",
-            "サーバーの削除", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+        if (MessageBox.Show(this, "Delete this server setting?\nLore credentials will not be deleted.",
+            "Delete server", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
         {
             return;
         }
@@ -202,7 +202,7 @@ public partial class MainWindow : Window
         }
         updatingInputs = false;
         SetForm(null);
-        FooterStatus.Text = "サーバー情報を削除しました。";
+        FooterStatus.Text = "Server deleted.";
     }
 
     private bool SaveServers(IReadOnlyCollection<ServerProfile> updated)
@@ -214,8 +214,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
         {
-            MessageBox.Show(this, $"サーバー情報を保存できませんでした。\n\n{ex.Message}",
-                "保存エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(this, $"Could not save server settings.\n\n{ex.Message}",
+                "Save error", MessageBoxButton.OK, MessageBoxImage.Error);
             return false;
         }
     }
@@ -226,16 +226,16 @@ public partial class MainWindow : Window
         {
             if (projectStore.Load().Any(project => project.ServerId == serverId))
             {
-                MessageBox.Show(this, "このサーバーには登録済みプロジェクトがあります。サーバーの削除やURL変更はできません。",
-                    "サーバー設定", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(this, "This server has registered projects. It cannot be deleted or its URL changed.",
+                    "Server settings", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return false;
             }
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
         {
-            MessageBox.Show(this, $"プロジェクト設定を確認できません。サーバー設定は変更されていません。\n\n{ex.Message}",
-                "設定エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(this, $"Could not verify project settings. Server settings were not changed.\n\n{ex.Message}",
+                "Settings error", MessageBoxButton.OK, MessageBoxImage.Error);
             return false;
         }
     }
@@ -248,7 +248,7 @@ public partial class MainWindow : Window
         }
         if (dirty)
         {
-            MessageBox.Show(this, "プロジェクトを開く前にサーバー設定を保存してください。", "未保存の変更",
+            MessageBox.Show(this, "Save the server settings before opening projects.", "Unsaved changes",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
@@ -269,7 +269,7 @@ public partial class MainWindow : Window
         }
         if (dirty)
         {
-            MessageBox.Show(this, "ログインする前にサーバー設定を保存してください。", "未保存の変更",
+            MessageBox.Show(this, "Save the server settings before signing in.", "Unsaved changes",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
@@ -277,7 +277,7 @@ public partial class MainWindow : Window
         authenticating = true;
         loginUrl = null;
         browserError = null;
-        LoginStatus.Text = "サーバーに接続してログインを開始しています…";
+        LoginStatus.Text = "Connecting to the server and starting sign-in…";
         UserCodeText.Text = string.Empty;
         OpenBrowserButton.Visibility = Visibility.Collapsed;
         UpdateControls();
@@ -287,18 +287,18 @@ public partial class MainWindow : Window
         {
             var userName = await loginService.LoginAsync(activeServer.RemoteUrl, progress);
             LoginStatus.Text = string.IsNullOrWhiteSpace(userName)
-                ? "ログインが完了しました。"
-                : $"{userName} としてログインしました。";
-            FooterStatus.Text = "認証情報はLore SDKが管理します。";
+                ? "Sign-in completed."
+                : $"Signed in as {userName}.";
+            FooterStatus.Text = "Credentials are managed by the Lore SDK.";
             loginSucceeded = true;
         }
         catch (LoreError ex)
         {
-            LoginStatus.Text = $"ログインに失敗しました（Loreエラー {ex.ReturnCode}）。サーバーへの接続、証明書、SDKの互換性を確認してください。";
+            LoginStatus.Text = $"Sign-in failed (Lore error {ex.ReturnCode}). Check the server connection, certificate, and SDK compatibility.";
         }
         catch (Exception ex)
         {
-            LoginStatus.Text = $"ログインを開始または完了できませんでした（{ex.GetType().Name}）。SDKと実行環境を確認してください。";
+            LoginStatus.Text = $"Could not start or complete sign-in ({ex.GetType().Name}). Check the SDK and environment.";
         }
         finally
         {
@@ -325,7 +325,7 @@ public partial class MainWindow : Window
         {
             if (!LoginBrowser.IsSafeUrl(progress.Url))
             {
-                browserError = "認証先URLが安全なHTTPS URLではないため、ブラウザーを開けません。";
+                browserError = "Cannot open the browser because the authentication URL is not secure HTTPS.";
                 LoginStatus.Text = browserError;
                 return;
             }
@@ -333,7 +333,7 @@ public partial class MainWindow : Window
             loginUrl = progress.Url;
             UserCodeText.Text = string.IsNullOrEmpty(progress.UserCode)
                 ? string.Empty
-                : $"認証コード: {progress.UserCode}";
+                : $"Authorization code: {progress.UserCode}";
             OpenBrowserButton.Visibility = Visibility.Visible;
             if (firstUrl)
             {
@@ -342,7 +342,7 @@ public partial class MainWindow : Window
         }
         else if (progress.RemainingSeconds is { } remaining && browserError is null)
         {
-            LoginStatus.Text = $"ブラウザーでログインを完了してください（残り約{remaining}秒）。";
+            LoginStatus.Text = $"Complete sign-in in your browser (about {remaining} seconds remaining).";
         }
     }
 
@@ -356,11 +356,11 @@ public partial class MainWindow : Window
         {
             loginBrowser.Open(loginUrl);
             browserError = null;
-            LoginStatus.Text = "ブラウザーでログインを完了してください。";
+            LoginStatus.Text = "Complete sign-in in your browser.";
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
         {
-            browserError = "ブラウザーを開けませんでした。既定のブラウザーを確認して、もう一度お試しください。";
+            browserError = "Could not open the browser. Check your default browser and try again.";
             LoginStatus.Text = browserError;
         }
     }
@@ -369,8 +369,8 @@ public partial class MainWindow : Window
 
     private void Window_Closing(object? sender, CancelEventArgs e)
     {
-        if (authenticating && MessageBox.Show(this, "ログイン処理中です。Chroniclerを終了しますか？",
-            "ログイン処理中", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+        if (authenticating && MessageBox.Show(this, "Sign-in is in progress. Exit Chronicler?",
+            "Sign-in in progress", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
         {
             e.Cancel = true;
             return;

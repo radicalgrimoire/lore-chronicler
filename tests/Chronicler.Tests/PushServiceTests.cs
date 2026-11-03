@@ -95,7 +95,7 @@ public sealed class PushServiceTests
         var service = new LorePushService(backend);
         var expected = await service.PrepareAsync("repo");
         var error = await Assert.ThrowsAsync<PushException>(() => service.PushAsync("repo", expected, Progress));
-        Assert.Contains("サーバーの状態を確認", error.Message);
+        Assert.Contains("push target differs from the confirmed target", error.Message);
         Assert.Single(backend.Pushes);
         Assert.False(await service.VerifyAsync("repo", expected));
         backend.Status = Safe with { RemoteRevision = Local, RemoteAvailable = false };

@@ -19,7 +19,7 @@ public sealed class LoreStageService : IStageService
         ValidatePaths(root, [path]);
         if ((File.Exists(path) || Directory.Exists(path))
             && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
-            throw new InvalidDataException("リンクを直接ステージすることはできません。");
+            throw new InvalidDataException("A link cannot be staged directly.");
         using var globals = new LoreGlobalArgs { RepositoryPath = root, Offline = true };
         using var args = new LoreFileStageArgs { Paths = [path], Scan = true };
         string? error = null;
@@ -33,8 +33,8 @@ public sealed class LoreStageService : IStageService
                 if (ev.Tag == LoreEventTag.FILE_STAGE_END) ended = true;
             }
         }).WaitAsync();
-        if (error is not null) throw new InvalidDataException($"ステージを完了できません: {error}");
-        if (!ended) throw new InvalidDataException("ステージの完了を確認できませんでした。");
+        if (error is not null) throw new InvalidDataException($"Could not complete staging: {error}");
+        if (!ended) throw new InvalidDataException("Could not verify staging completion.");
     });
 
     public Task UnstageAsync(string root, IReadOnlyList<string> paths) => Task.Run(async () =>
@@ -53,13 +53,13 @@ public sealed class LoreStageService : IStageService
                 if (ev.Tag == LoreEventTag.FILE_UNSTAGE_END) ended = true;
             }
         }).WaitAsync();
-        if (error is not null) throw new InvalidDataException($"アンステージを完了できません: {error}");
-        if (!ended) throw new InvalidDataException("アンステージの完了を確認できませんでした。");
+        if (error is not null) throw new InvalidDataException($"Could not complete unstaging: {error}");
+        if (!ended) throw new InvalidDataException("Could not verify unstaging completion.");
     });
 
     private static void ValidatePaths(string root, IReadOnlyList<string> paths)
     {
-        if (paths.Count == 0) throw new ArgumentException("対象が選択されていません。", nameof(paths));
+        if (paths.Count == 0) throw new ArgumentException("No item is selected.", nameof(paths));
         var fullRoot = Path.GetFullPath(root);
         foreach (var path in paths)
         {

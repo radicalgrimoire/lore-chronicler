@@ -43,17 +43,17 @@ public sealed record StagedEntry(string FullPath, string RelativePath, bool IsDi
     public Thickness Indent => new(Depth * 18, 0, 0, 0);
     public string TreeName => Path.GetFileName(FullPath);
     public string ExpandMarker => IsExpanded ? "▼" : "▶";
-    public string ExpandAccessibleName => $"{RelativePath} {(IsExpanded ? "折りたたむ" : "展開する")}";
-    public string DisplayName => IsDirectory ? $"{RelativePath} (フォルダー)" : RelativePath;
+    public string ExpandAccessibleName => $"{RelativePath} {(IsExpanded ? "collapse" : "expand")}";
+    public string DisplayName => IsDirectory ? $"{RelativePath} (folder)" : RelativePath;
     public string ActionText => Action switch
     {
-        ChangeAction.Deleted => "削除",
-        ChangeAction.Added => "追加",
-        ChangeAction.Modified => "編集",
-        ChangeAction.Moved => "移動",
-        ChangeAction.Copied => "コピー",
-        ChangeAction.Folder => "フォルダー（配下の変更）",
-        _ => "その他の変更"
+        ChangeAction.Deleted => "Delete",
+        ChangeAction.Added => "Added",
+        ChangeAction.Modified => "Modified",
+        ChangeAction.Moved => "Moved",
+        ChangeAction.Copied => "Copied",
+        ChangeAction.Folder => "Folder (descendant changes)",
+        _ => "Other change"
     };
     public string Icon => IsDirectory ? "📁" : ActionIcon;
     public string DirectoryActionIcon => IsDirectory && Action != ChangeAction.Folder ? ActionIcon : string.Empty;
@@ -68,8 +68,8 @@ public sealed record StagedEntry(string FullPath, string RelativePath, bool IsDi
         _ => "●"
     };
     public string StateMarker => IsStaged && IsUnstaged ? "✓・" : IsStaged ? "✓" : "・";
-    public string StateText => (IsDirectory ? "フォルダー自身または配下: " : string.Empty)
-        + (IsStaged && IsUnstaged ? "未ステージ・ステージ済み" : IsStaged ? "ステージ済み" : "未ステージ");
+    public string StateText => (IsDirectory ? "Folder or descendants: " : string.Empty)
+        + (IsStaged && IsUnstaged ? "staged and unstaged" : IsStaged ? "staged" : "unstaged");
     public string Background => IsStaged ? "#FFE4F5E8" : "#FFFFF2C6";
     public string StateColor => IsStaged ? "#FF288348" : "#FFE5A000";
     public string AccessibleName => $"{ActionText} {DisplayName} {StateText}";
@@ -229,19 +229,19 @@ public sealed class LoreFileStatusService : IFileStatusService
                     stagedDirectories.Add(data.Path);
             }
         }).WaitAsync();
-        if (error is not null) throw new InvalidDataException($"Loreの変更状態を完全に取得できません: {error}");
+        if (error is not null) throw new InvalidDataException($"Could not retrieve all Lore changes: {error}");
         return new FileStatusSnapshot(path, changes, stagedDirectories, actions, changeDirectories);
     }
 
     public static string ResolvePath(string root, string relativePath)
     {
         if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath))
-            throw new InvalidDataException("Loreから不正なファイルパスが返されました。");
+            throw new InvalidDataException("Lore returned an invalid file path.");
         var fullRoot = Path.GetFullPath(root);
         var fullPath = Path.GetFullPath(Path.Combine(fullRoot, relativePath));
         var relative = Path.GetRelativePath(fullRoot, fullPath);
         if (relative == ".." || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
-            throw new InvalidDataException("Loreからプロジェクト外のパスが返されました。");
+            throw new InvalidDataException("Lore returned a path outside the project.");
         return fullPath;
     }
 }

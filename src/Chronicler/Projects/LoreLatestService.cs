@@ -43,39 +43,39 @@ public sealed class LoreLatestService(ILatestBackend? backend = null) : ILatestS
         ValidateRemoteAccess(status);
         if (!status.RemoteBranchExists)
         {
-            throw new LatestSyncException("現在のブランチがサーバーに存在しません。");
+            throw new LatestSyncException("The current branch does not exist on the server.");
         }
         if (status.LocalAhead)
         {
             throw new LatestSyncException(status.RemoteAhead
-                ? "ローカルとサーバーの履歴が分岐しているため、取得を中止しました。自動マージは行いません。"
-                : "ローカルの履歴がサーバーより進んでいるため、取得を中止しました。");
+                ? "Local and server histories have diverged. The update was cancelled; no automatic merge was performed."
+                : "Local history is ahead of the server. The update was cancelled.");
         }
         if (string.IsNullOrWhiteSpace(status.Branch) || status.Branch.Contains('@')
             || string.IsNullOrEmpty(status.RemoteRevision) || status.RemoteRevision.All(c => c == '0'))
         {
-            throw new LatestSyncException("サーバーの更新対象を特定できません。");
+            throw new LatestSyncException("Could not identify the server revision to update to.");
         }
         if (!string.Equals(status.LocalRevision, status.RemoteRevision, StringComparison.OrdinalIgnoreCase)
             && !status.RemoteAhead)
         {
-            throw new LatestSyncException("ローカルとサーバーの履歴の関係を確認できないため、取得を中止しました。");
+            throw new LatestSyncException("Could not determine the relationship between local and server histories. The update was cancelled.");
         }
 
-        progress.Report("サーバーで確認したリビジョンに更新しています…");
+        progress.Report("Updating to the revision verified on the server…");
         var result = await backend.SyncAsync(path, $"{status.Branch}@{status.RemoteRevision}");
         if (!result.RemoteAvailable || !result.RemoteAuthorized)
         {
-            throw new LatestSyncException("更新中にサーバーのリビジョンを確認できませんでした。ファイルが一部変更された可能性があります。");
+            throw new LatestSyncException("Could not verify the server revision during the update. Some files may have changed.");
         }
         if (!string.Equals(result.Branch, status.Branch, StringComparison.Ordinal)
             || !string.Equals(result.Revision, status.RemoteRevision, StringComparison.OrdinalIgnoreCase))
         {
-            throw new LatestSyncException("確認したリビジョンと更新対象が異なります。ファイルが変更された可能性があります。");
+            throw new LatestSyncException("The update target differs from the verified revision. Some files may have changed.");
         }
         if (result.Conflict)
         {
-            throw new LatestSyncException("更新中に競合が発生しました。ローカルの状態を確認してください。");
+            throw new LatestSyncException("A conflict occurred during the update. Check local files.");
         }
         return status;
     }
@@ -83,9 +83,9 @@ public sealed class LoreLatestService(ILatestBackend? backend = null) : ILatestS
     private static void ValidateRemoteAccess(LatestStatus status)
     {
         if (!status.RemoteAvailable)
-            throw new LatestSyncException("サーバーのリビジョンを確認できません。接続、ログイン状態、アクセス権を確認してください。");
+            throw new LatestSyncException("Could not verify the server revision. Check the connection, sign-in, and permissions.");
         if (!status.RemoteAuthorized)
-            throw new RemoteAuthenticationRequiredException("サーバーへのログインが必要です。");
+            throw new RemoteAuthenticationRequiredException("Sign-in to the server is required.");
     }
 }
 
@@ -107,7 +107,7 @@ public sealed class LoreLatestBackend : ILatestBackend
                         data.RemoteAuthorized, data.RemoteBranchExist, data.IsLocalAhead, data.IsRemoteAhead);
                 }
             }).WaitAsync();
-        return status ?? throw new LatestSyncException("リポジトリの状態を取得できませんでした。");
+        return status ?? throw new LatestSyncException("Could not retrieve repository status.");
     }
 
     public async Task<LatestSyncOutcome> SyncAsync(string path, string revision)
@@ -131,7 +131,7 @@ public sealed class LoreLatestBackend : ILatestBackend
                 }
             }).WaitAsync();
         return target is null
-            ? throw new LatestSyncException("更新結果を確認できませんでした。ファイルが一部変更された可能性があります。")
+            ? throw new LatestSyncException("Could not verify the update result. Some files may have changed.")
             : target with { Conflict = conflict };
     }
 }

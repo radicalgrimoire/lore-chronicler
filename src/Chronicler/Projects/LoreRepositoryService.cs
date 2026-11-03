@@ -39,7 +39,7 @@ public sealed class LoreRepositoryService : IRepositoryService
             {
                 if (ev.Tag == LoreEventTag.REPOSITORY_CLONE_PROGRESS)
                 {
-                    progress.Report("clone中です。完了するまでお待ちください。");
+                    progress.Report("Cloning. Please wait until completion.");
                 }
             }).WaitAsync();
     }

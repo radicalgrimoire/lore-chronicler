@@ -8,7 +8,7 @@ public static class ServerProfileValidator
     {
         if (string.IsNullOrWhiteSpace(name))
         {
-            error = "サーバー名を入力してください。";
+            error = "Enter a display name.";
             return false;
         }
 
@@ -23,7 +23,7 @@ public static class ServerProfileValidator
             || !string.IsNullOrEmpty(uri.Fragment)
             || uri.Port == 0)
         {
-            error = "サーバーURLは lore://hostname:41337 の形式で入力してください。認証情報やリポジトリのパスは含められません。";
+            error = "Enter a server URL such as lore://hostname:41337 without credentials or a repository path.";
             return false;
         }
 

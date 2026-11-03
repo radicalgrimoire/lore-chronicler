@@ -169,7 +169,7 @@ public sealed class FileStatusServiceTests
             folder =>
             {
                 Assert.True(folder.IsDirectory);
-                Assert.Equal("folder (フォルダー)", folder.DisplayName);
+                Assert.Equal("folder (folder)", folder.DisplayName);
             },
             file =>
             {

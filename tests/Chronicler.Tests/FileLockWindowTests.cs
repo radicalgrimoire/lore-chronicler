@@ -43,8 +43,8 @@ public sealed class FileLockWindowTests : IDisposable
             folder.IsExpanded = true;
             var file = WaitForChild(folder, "asset.txt");
             Assert.Empty(AutomationProperties.GetHelpText(folder));
-            Assert.NotEqual("変更あり", AutomationProperties.GetItemStatus(file));
-            Assert.Empty(Control<TextBox>(window, "LockStatusText").Text);
+            Assert.Equal(string.Empty, AutomationProperties.GetItemStatus(file));
+            Assert.Null(window.FindName("LockStatusText"));
             var icon = FindText(file, "🔒");
             Assert.NotNull(icon);
             Assert.Equal(Visibility.Visible, icon.Visibility);
@@ -66,8 +66,7 @@ public sealed class FileLockWindowTests : IDisposable
             icon = FindText(file, "🔒");
             Assert.NotNull(icon);
             Assert.Equal(Visibility.Collapsed, icon.Visibility);
-            Assert.NotEqual("変更あり", AutomationProperties.GetItemStatus(file));
-            Assert.Empty(Control<TextBox>(window, "LockStatusText").Text);
+            Assert.Equal(string.Empty, AutomationProperties.GetItemStatus(file));
             Assert.Equal([project.LocalPath, project.LocalPath], service.Paths);
             window.Close();
         });
@@ -87,25 +86,25 @@ public sealed class FileLockWindowTests : IDisposable
             var window = CreateWindow(service, new FakeFileStatusService(), project);
             window.Show();
             SelectProject(window, 0);
-            Assert.Contains("lock query failed", Control<TextBox>(window, "LockStatusText").Text);
+            Assert.Contains("lock query failed", Control<TextBlock>(window, "StatusText").Text);
             var root = Assert.IsType<TreeViewItem>(Control<TreeView>(window, "FileTree").Items[0]);
             var file = WaitForChild(root, "file.txt");
             Assert.Equal(Visibility.Collapsed, Assert.IsType<TextBlock>(FindText(file, "🔒")).Visibility);
             service.Query = path => Task.FromResult(Result(path, "file.txt", new FileLockOwner("user-id", null, "branch")) with
-                { Warning = "取得者名を確認できません。" });
+                { Warning = "Could not resolve lock owner." });
             Click(window, "RefreshTreeButton");
             root = Assert.IsType<TreeViewItem>(Control<TreeView>(window, "FileTree").Items[0]);
             file = WaitForChild(root, "file.txt");
             var icon = Assert.IsType<TextBlock>(FindText(file, "🔒"));
             Assert.Equal(Visibility.Visible, icon.Visibility);
             Assert.Contains("user-id", Assert.IsType<string>(icon.ToolTip));
-            Assert.Contains("取得者名を確認できません", Control<TextBox>(window, "LockStatusText").Text);
+            Assert.Contains("Could not resolve lock owner.", Control<TextBlock>(window, "StatusText").Text);
             service.Query = _ => Task.FromException<FileLockResult>(new IOException("retry failed"));
             Click(window, "RefreshTreeButton");
             root = Assert.IsType<TreeViewItem>(Control<TreeView>(window, "FileTree").Items[0]);
             file = WaitForChild(root, "file.txt");
             Assert.Equal(Visibility.Collapsed, Assert.IsType<TextBlock>(FindText(file, "🔒")).Visibility);
-            Assert.Contains("retry failed", Control<TextBox>(window, "LockStatusText").Text);
+            Assert.Contains("retry failed", Control<TextBlock>(window, "StatusText").Text);
             window.Close();
         });
     }
@@ -128,7 +127,7 @@ public sealed class FileLockWindowTests : IDisposable
             var window = CreateWindow(service, new FakeFileStatusService(), first, second);
             window.Show();
             SelectProject(window, 0);
-            Assert.Contains("確認しています", Control<TextBox>(window, "LockStatusText").Text);
+            Assert.Null(window.FindName("LockStatusText"));
             SelectProject(window, 1);
             delayed.SetResult(Result(first.LocalPath, "file.txt", new FileLockOwner("a", "Alice", "branch")));
             PumpDispatcher();

@@ -30,11 +30,11 @@ public partial class ServerShortcutsWindow : Window
             foreach (var server in store.Load())
                 servers.Add(server);
             available = true;
-            StatusText.Text = "接続先を選択するか、新規登録してください。";
+            StatusText.Text = string.Empty;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
         {
-            StatusText.Text = $"接続先設定を読み込めません。ファイルは変更されていません。\n{ex.Message}";
+            StatusText.Text = $"Could not load connections. The settings file was not changed.\n{ex.Message}";
         }
         UpdateControls();
     }
@@ -57,7 +57,7 @@ public partial class ServerShortcutsWindow : Window
         UpdateControls();
     }
 
-    private bool ConfirmDiscard() => !dirty || confirm("保存していない変更を破棄しますか？", "変更の破棄");
+    private bool ConfirmDiscard() => !dirty || confirm("Discard unsaved changes?", "Discard changes");
 
     private void Inputs_TextChanged(object sender, TextChangedEventArgs e)
     {
@@ -97,13 +97,13 @@ public partial class ServerShortcutsWindow : Window
         }
         if (name != activeServer?.Name && new StringInfo(name).LengthInTextElements > 32)
         {
-            StatusText.Text = "表示名は32文字以内で入力してください。";
+            StatusText.Text = "Display names must be at most 32 characters.";
             return;
         }
         if (servers.Any(server => server.Id != activeServer?.Id
             && string.Equals(server.Name, name, StringComparison.OrdinalIgnoreCase)))
         {
-            StatusText.Text = "同じ表示名の接続先が既にあります。";
+            StatusText.Text = "A connection with this display name already exists.";
             return;
         }
         var profile = new ServerProfile(activeServer?.Id ?? Guid.NewGuid(), name, url);
@@ -117,13 +117,13 @@ public partial class ServerShortcutsWindow : Window
         foreach (var server in updated) servers.Add(server);
         updating = false;
         SetForm(profile);
-        StatusText.Text = "接続先を保存しました。";
+        StatusText.Text = "Connection saved.";
     }
 
     private void RemoveButton_Click(object sender, RoutedEventArgs e)
     {
         if (activeServer is null || !ConfirmDiscard()
-            || !confirm("この接続先ショートカットを削除しますか？\n既存プロジェクトとLoreの認証情報は削除されません。", "接続先の削除"))
+            || !confirm("Delete this connection shortcut?\nExisting projects and Lore credentials will not be deleted.", "Delete connection"))
             return;
         var updated = servers.Where(server => server.Id != activeServer.Id).ToList();
         if (!Save(updated)) return;
@@ -132,7 +132,7 @@ public partial class ServerShortcutsWindow : Window
         foreach (var server in updated) servers.Add(server);
         updating = false;
         SetForm(null);
-        StatusText.Text = "接続先を削除しました。";
+        StatusText.Text = "Connection deleted.";
     }
 
     private bool Save(IReadOnlyCollection<ServerProfile> updated)
@@ -144,7 +144,7 @@ public partial class ServerShortcutsWindow : Window
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
         {
-            StatusText.Text = $"接続先設定を保存できません。ファイルは変更されていません。\n{ex.Message}";
+            StatusText.Text = $"Could not save connections. The settings file was not changed.\n{ex.Message}";
             return false;
         }
     }
