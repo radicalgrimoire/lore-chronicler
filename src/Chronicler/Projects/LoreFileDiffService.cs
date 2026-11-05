@@ -90,8 +90,17 @@ public sealed class LoreFileDiffService : IFileDiffService
     private static async Task<byte[]> ReadStorageAsync(string path, LoreAddress address, byte[] repositoryId)
     {
         ulong handle = 0;
-        using var globals = new LoreGlobalArgs { RepositoryPath = path };
-        using var open = new LoreStorageOpenArgs { RepositoryPath = path };
+        using var configGlobals = new LoreGlobalArgs { RepositoryPath = path, Offline = true };
+        var remoteUrl = await ReadConfigAsync(configGlobals, "remote_url");
+        var identity = await ReadConfigAsync(configGlobals, "identity");
+        using var globals = new LoreGlobalArgs { RepositoryPath = path, Identity = identity };
+        using var remote = new LoreStorageRemoteConfig { RemoteUrl = remoteUrl };
+        using var open = new LoreStorageOpenArgs
+        {
+            RepositoryPath = path,
+            RemoteConfig = remote,
+            HasRemoteConfig = !string.IsNullOrWhiteSpace(remoteUrl)
+        };
         await Lore.StorageOpen(globals, open).Callback((ev, _) =>
         {
             if (ev.Tag == LoreEventTag.STORAGE_OPENED)
@@ -125,6 +134,18 @@ public sealed class LoreFileDiffService : IFileDiffService
             using var close = new LoreStorageCloseArgs { Handle = store };
             await Lore.StorageClose(globals, close).WaitAsync();
         }
+    }
+
+    private static async Task<string> ReadConfigAsync(LoreGlobalArgs globals, string key)
+    {
+        string? value = null;
+        using var args = new LoreRepositoryConfigGetArgs { Key = key };
+        await Lore.RepositoryConfigGet(globals, args).Callback((ev, _) =>
+        {
+            if (ev.Tag == LoreEventTag.REPOSITORY_CONFIG_GET)
+                value = ev.GetData<LoreRepositoryConfigGetEventDataFFI>().Value;
+        }).WaitAsync();
+        return value ?? throw new InvalidDataException($"Could not read repository configuration: {key}.");
     }
 
     private static bool TryDecode(byte[]? bytes, out string? text)
