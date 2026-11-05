@@ -34,6 +34,7 @@ public partial class WorkspaceWindow : Window
     private readonly IStageService stageService;
     private readonly ICommitService commitService;
     private readonly IPushService pushService;
+    private readonly IUnpushedCommitService unpushedCommitService;
     private readonly IAuthenticationStatusService authenticationStatusService;
     private readonly DispatcherTimer authenticationStatusTimer = new() { Interval = TimeSpan.FromMinutes(1) };
     private readonly Func<string, string, bool> confirm;
@@ -59,6 +60,9 @@ public partial class WorkspaceWindow : Window
     private bool lockNeedsRefresh;
     private IReadOnlyDictionary<string, IReadOnlyList<FileLockOwner>>? fileLocks;
     private int authenticationStatusVersion;
+    private int pushStatusVersion;
+    private bool checkingClose;
+    private bool closingAfterConfirmation;
 
     public WorkspaceWindow() : this(new ServerProfile(Guid.NewGuid(), "server", string.Empty),
         new ProjectSettingsStore(ProjectSettingsStore.DefaultPath), new LoreRepositoryService())
@@ -75,7 +79,8 @@ public partial class WorkspaceWindow : Window
         IAuthenticationStatusService? authenticationStatusService = null,
         IFileLockActionsService? fileLockActionsService = null,
         IRevisionChangesService? revisionChangesService = null,
-        IFileDiffService? fileDiffService = null)
+        IFileDiffService? fileDiffService = null,
+        IUnpushedCommitService? unpushedCommitService = null)
     {
         this.server = server;
         this.store = store;
@@ -92,6 +97,7 @@ public partial class WorkspaceWindow : Window
         this.stageService = stageService ?? new LoreStageService();
         this.commitService = commitService ?? new LoreCommitService();
         this.pushService = pushService ?? new LorePushService();
+        this.unpushedCommitService = unpushedCommitService ?? new LoreUnpushedCommitService();
         this.authenticationStatusService = authenticationStatusService ?? new LoreAuthenticationStatusService();
         this.confirm = confirm ?? ((message, title) =>
             MessageBox.Show(this, message, title, MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes);
@@ -190,6 +196,57 @@ public partial class WorkspaceWindow : Window
             CommitMessageText.Text = project is null ? string.Empty : commitDrafts.GetValueOrDefault(project.Id, string.Empty);
         }
         if (authenticationChanged) _ = RefreshAuthenticationStatusAsync();
+        RefreshPushButton();
+    }
+
+    private void RefreshPushButton()
+    {
+        var version = ++pushStatusVersion;
+        PushButton.Content = "Push";
+        PushButton.ToolTip = "Push committed history on the current branch to the server.";
+        if (activeProject is not { CloneState: ProjectCloneState.Ready } project) return;
+        _ = RefreshPushButtonAsync(project, version);
+    }
+
+    private async Task RefreshPushButtonAsync(ProjectProfile project, int version)
+    {
+        try
+        {
+            var status = await pushService.PrepareAsync(project.LocalPath);
+            var count = await unpushedCommitService.ReadAsync(project.LocalPath, status);
+            if (closed || version != pushStatusVersion || activeProject?.Id != project.Id) return;
+
+            PushButton.Content = count.Count == 0 ? "Push"
+                : count.IsExact ? $"Push ({count.Count})" : $"Push ({count.Count}+)";
+            PushButton.ToolTip = count.Count == 0
+                ? "No committed changes need to be pushed on the current branch."
+                : count.IsExact
+                    ? $"Push {count.Count} committed change(s) on the current branch to the server."
+                    : $"Push at least {count.Count} committed change(s) on the current branch to the server.";
+        }
+        catch (PushException)
+        {
+            SetPushStatusUnavailable(project, version);
+        }
+        catch (RemoteAuthenticationRequiredException)
+        {
+            SetPushStatusUnavailable(project, version);
+        }
+        catch (LoreError)
+        {
+            SetPushStatusUnavailable(project, version);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+            or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+        {
+            SetPushStatusUnavailable(project, version);
+        }
+    }
+
+    private void SetPushStatusUnavailable(ProjectProfile project, int version)
+    {
+        if (closed || version != pushStatusVersion || activeProject?.Id != project.Id) return;
+        PushButton.ToolTip = "Could not check whether committed changes need to be pushed.";
     }
 
     private void CommitMessageText_TextChanged(object sender, TextChangedEventArgs e)
@@ -545,6 +602,7 @@ public partial class WorkspaceWindow : Window
                 InvalidateFileStatus();
             busy = false;
             UpdateControls();
+            RefreshPushButton();
             LoadPendingFileStatus();
             LoadHistoryIfVisible();
         }
@@ -883,6 +941,7 @@ public partial class WorkspaceWindow : Window
             }
             busy = false;
             UpdateControls();
+            RefreshPushButton();
             LoadPendingFileStatus();
             LoadHistoryIfVisible();
         }
@@ -1041,6 +1100,7 @@ public partial class WorkspaceWindow : Window
             }
             busy = false;
             UpdateControls();
+            RefreshPushButton();
             LoadPendingFileStatus();
             LoadHistoryIfVisible();
         }
@@ -1366,6 +1426,7 @@ public partial class WorkspaceWindow : Window
         StatusText.Text = message;
         busy = false;
         UpdateControls();
+        RefreshPushButton();
         LoadPendingFileStatus();
         LoadHistoryIfVisible();
     }
@@ -1394,11 +1455,67 @@ public partial class WorkspaceWindow : Window
 
     private void Window_Closing(object? sender, CancelEventArgs e)
     {
+        if (closingAfterConfirmation) return;
         if (busy || fileStatusRunning)
         {
             e.Cancel = true;
             StatusText.Text = "An operation is in progress. Please wait.";
+            return;
         }
+        if (activeProject is not { CloneState: ProjectCloneState.Ready } project) return;
+
+        e.Cancel = true;
+        if (!checkingClose) _ = ConfirmCloseAsync(project);
+    }
+
+    private async Task ConfirmCloseAsync(ProjectProfile project)
+    {
+        checkingClose = true;
+        try
+        {
+            var status = await pushService.PrepareAsync(project.LocalPath);
+            if (status.LocalAhead && !confirm(
+                    $"The current branch has committed changes that have not been pushed to the server.\n\nClose Chronicler anyway?",
+                    "Unpushed changes"))
+                return;
+            CloseAfterConfirmation();
+        }
+        catch (PushException ex)
+        {
+            ConfirmCloseWithoutStatus(ex.Message);
+        }
+        catch (RemoteAuthenticationRequiredException ex)
+        {
+            ConfirmCloseWithoutStatus(ex.Message);
+        }
+        catch (LoreError ex)
+        {
+            ConfirmCloseWithoutStatus($"Could not check for unpushed changes (Lore error {ex.ReturnCode}).\n{ex.Message}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+            or ArgumentException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+        {
+            ConfirmCloseWithoutStatus($"Could not check for unpushed changes.\n{ex.Message}");
+        }
+        finally
+        {
+            checkingClose = false;
+        }
+    }
+
+    private void ConfirmCloseWithoutStatus(string reason)
+    {
+        StatusText.Text = reason;
+        if (confirm($"{reason}\n\nClose Chronicler without confirming the push status?", "Push status unavailable"))
+        {
+            CloseAfterConfirmation();
+        }
+    }
+
+    private void CloseAfterConfirmation()
+    {
+        closingAfterConfirmation = true;
+        Dispatcher.BeginInvoke(Close);
     }
 
     private void Window_Closed(object? sender, EventArgs e)

@@ -119,7 +119,7 @@ public sealed class PushWindowTests : IDisposable
             var authenticationCalls = 0;
             var service = new FakePushService
             {
-                Prepare = () => ++prepareCalls == 1
+                Prepare = () => ++prepareCalls <= 2
                     ? Task.FromException<LatestStatus>(new RemoteAuthenticationRequiredException("Sign-in to the server is required."))
                     : Task.FromResult(Status)
             };
@@ -131,9 +131,32 @@ public sealed class PushWindowTests : IDisposable
             SelectProject(window);
             Click(window, "PushButton");
             Assert.Equal(1, authenticationCalls);
-            Assert.Equal(2, prepareCalls);
+            Assert.True(prepareCalls >= 3);
             Assert.Equal(1, service.Pushes);
             window.Close();
+        });
+    }
+
+    [Fact]
+    public void ShowsUnpushedCommitCountAndConfirmsBeforeClosing()
+    {
+        RunSta(() =>
+        {
+            var confirmations = new List<string>();
+            var window = CreateWindow(new FakePushService(), (message, _) =>
+            {
+                confirmations.Add(message);
+                return true;
+            });
+            SelectProject(window);
+            PumpDispatcher();
+
+            Assert.Equal("Push (3)", Control<Button>(window, "PushButton").Content);
+            window.Close();
+            PumpDispatcher();
+
+            Assert.Contains(confirmations, message => message.Contains("have not been pushed"));
+            Assert.False(window.IsVisible);
         });
     }
 
@@ -148,7 +171,8 @@ public sealed class PushWindowTests : IDisposable
         store.Save([project]);
         var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), confirm,
             repositoryInfo: repositoryInfo, fileStatusService: new FakeFileStatusService(),
-            authenticate: authenticate, fileLockService: new FakeFileLockService(), pushService: service);
+            authenticate: authenticate, fileLockService: new FakeFileLockService(), pushService: service,
+            unpushedCommitService: new FakeUnpushedCommitService());
         window.Show();
         return window;
     }
@@ -183,11 +207,18 @@ public sealed class PushWindowTests : IDisposable
             Pushes++;
             return Pending;
         }
+
         public Task<bool> VerifyAsync(string path, LatestStatus expected)
         {
             Verifications++;
             return Task.FromResult(Verified);
         }
+    }
+
+    private sealed class FakeUnpushedCommitService : IUnpushedCommitService
+    {
+        public Task<UnpushedCommitCount> ReadAsync(string path, LatestStatus status) =>
+            Task.FromResult(new UnpushedCommitCount(status.LocalAhead ? 3 : 0, true));
     }
 
     private sealed class UnusedRepositoryService : IRepositoryService
