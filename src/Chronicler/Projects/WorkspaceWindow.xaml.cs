@@ -61,6 +61,7 @@ public partial class WorkspaceWindow : Window
     private IReadOnlyDictionary<string, IReadOnlyList<FileLockOwner>>? fileLocks;
     private int authenticationStatusVersion;
     private int pushStatusVersion;
+    private bool pushStatusNeedsRefresh;
     private bool checkingClose;
     private bool closingAfterConfirmation;
 
@@ -201,11 +202,19 @@ public partial class WorkspaceWindow : Window
 
     private void RefreshPushButton()
     {
-        var version = ++pushStatusVersion;
+        ++pushStatusVersion;
         PushButton.Content = "Push";
         PushButton.ToolTip = "Push committed history on the current branch to the server.";
-        if (activeProject is not { CloneState: ProjectCloneState.Ready } project) return;
-        _ = RefreshPushButtonAsync(project, version);
+        pushStatusNeedsRefresh = activeProject is { CloneState: ProjectCloneState.Ready };
+        LoadPendingPushStatus();
+    }
+
+    private void LoadPendingPushStatus()
+    {
+        if (closed || busy || fileStatusRunning || fileStatusNeedsRefresh || !pushStatusNeedsRefresh
+            || activeProject is not { CloneState: ProjectCloneState.Ready } project) return;
+        pushStatusNeedsRefresh = false;
+        _ = RefreshPushButtonAsync(project, pushStatusVersion);
     }
 
     private async Task RefreshPushButtonAsync(ProjectProfile project, int version)
@@ -213,6 +222,7 @@ public partial class WorkspaceWindow : Window
         try
         {
             var status = await pushService.PrepareAsync(project.LocalPath);
+            if (closed || version != pushStatusVersion || activeProject?.Id != project.Id) return;
             var count = await unpushedCommitService.ReadAsync(project.LocalPath, status);
             if (closed || version != pushStatusVersion || activeProject?.Id != project.Id) return;
 
@@ -225,6 +235,10 @@ public partial class WorkspaceWindow : Window
                     : $"Push at least {count.Count} committed change(s) on the current branch to the server.";
         }
         catch (PushException)
+        {
+            SetPushStatusUnavailable(project, version);
+        }
+        catch (LatestSyncException)
         {
             SetPushStatusUnavailable(project, version);
         }
@@ -787,11 +801,15 @@ public partial class WorkspaceWindow : Window
 
     private void LoadPendingFileStatus()
     {
+        if (closed || busy || fileStatusRunning) return;
+        if (fileStatusNeedsRefresh && activeProject is { CloneState: ProjectCloneState.Ready } project)
+        {
+            _ = LoadFileStatusAsync(project, fileStatusVersion);
+            return;
+        }
         LoadMyLocksIfVisible();
         LoadPendingLocks();
-        if (closed || busy || fileStatusRunning || !fileStatusNeedsRefresh
-            || activeProject is not { CloneState: ProjectCloneState.Ready } project) return;
-        _ = LoadFileStatusAsync(project, fileStatusVersion);
+        LoadPendingPushStatus();
     }
 
     private void LoadPendingLocks()
@@ -911,6 +929,10 @@ public partial class WorkspaceWindow : Window
                 StatusText.Text = "The push completed, but the remote revision could not be verified.";
         }
         catch (PushException ex)
+        {
+            StatusText.Text = ex.Message;
+        }
+        catch (LatestSyncException ex)
         {
             StatusText.Text = ex.Message;
         }
@@ -1471,16 +1493,26 @@ public partial class WorkspaceWindow : Window
     private async Task ConfirmCloseAsync(ProjectProfile project)
     {
         checkingClose = true;
+        busy = true;
+        UpdateControls();
+        StatusText.Text = "Checking for unpushed changes before closing...";
         try
         {
             var status = await pushService.PrepareAsync(project.LocalPath);
             if (status.LocalAhead && !confirm(
                     $"The current branch has committed changes that have not been pushed to the server.\n\nClose Chronicler anyway?",
                     "Unpushed changes"))
+            {
+                StatusText.Text = "Close cancelled.";
                 return;
+            }
             CloseAfterConfirmation();
         }
         catch (PushException ex)
+        {
+            ConfirmCloseWithoutStatus(ex.Message);
+        }
+        catch (LatestSyncException ex)
         {
             ConfirmCloseWithoutStatus(ex.Message);
         }
@@ -1500,6 +1532,13 @@ public partial class WorkspaceWindow : Window
         finally
         {
             checkingClose = false;
+            busy = false;
+            UpdateControls();
+            if (!closingAfterConfirmation)
+            {
+                LoadPendingFileStatus();
+                LoadHistoryIfVisible();
+            }
         }
     }
 

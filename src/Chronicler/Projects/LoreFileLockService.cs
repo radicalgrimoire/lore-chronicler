@@ -28,8 +28,10 @@ public sealed class LoreFileLockService : IFileLockService, IFileLockActionsServ
 
     private static async Task<FileLockResult> QueryCoreAsync(string path)
     {
-        using var globals = new LoreGlobalArgs { RepositoryPath = path, WorkingDirectory = Path.GetFullPath(path) };
-        var locks = await QueryEntriesAsync(globals);
+        List<(string Path, string Owner, string Branch)> locks;
+        using (await LoreRepositoryOperationGate.AcquireAsync(path))
+        using (var globals = new LoreGlobalArgs { RepositoryPath = path, WorkingDirectory = Path.GetFullPath(path) })
+            locks = await QueryEntriesAsync(globals);
 
         var owners = locks.Select(entry => entry.Owner).Where(owner => !string.IsNullOrWhiteSpace(owner))
             .Distinct(StringComparer.Ordinal).ToArray();
@@ -86,6 +88,7 @@ public sealed class LoreFileLockService : IFileLockService, IFileLockActionsServ
 
     public Task<IReadOnlyList<MyFileLock>> QueryMineAsync(string path) => Task.Run(async () =>
     {
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         using var globals = new LoreGlobalArgs { RepositoryPath = path, WorkingDirectory = Path.GetFullPath(path) };
         var owner = await ReadCurrentOwnerAsync(globals);
         var entries = await QueryEntriesAsync(globals, owner);
@@ -127,6 +130,7 @@ public sealed class LoreFileLockService : IFileLockService, IFileLockActionsServ
         var attributes = File.GetAttributes(fullPath);
         if ((attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
             throw new InvalidOperationException("Only regular files can be locked.");
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         using var globals = new LoreGlobalArgs { RepositoryPath = path, WorkingDirectory = Path.GetFullPath(path) };
         using var args = new LoreLockFileAcquireArgs { Paths = [fullPath] };
         string? error = null;
@@ -153,6 +157,7 @@ public sealed class LoreFileLockService : IFileLockService, IFileLockActionsServ
         if (!mine.Any(entry => entry.OwnerId == fileLock.OwnerId && entry.Branch == fileLock.Branch
             && string.Equals(entry.FullPath, fullPath, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("The selected lock does not belong to the current user. Refresh the lock list.");
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         using var globals = new LoreGlobalArgs { RepositoryPath = path, WorkingDirectory = Path.GetFullPath(path) };
         using var args = new LoreLockFileReleaseArgs
         {

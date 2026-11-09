@@ -24,6 +24,7 @@ public sealed class LoreFileDiffService : IFileDiffService
     public async Task<FileDiff> ReadAsync(string path, string revision, RevisionChange change)
     {
         if (!change.IsFile) return new FileDiff(null, null, "Before", "After", false, "Folders cannot be compared.");
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         var parent = await ReadParentAsync(path, revision);
         var beforePath = change.Action is ChangeAction.Moved or ChangeAction.Copied ? change.FromPath : change.Path;
         var before = change.Action == ChangeAction.Added ? null

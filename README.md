@@ -18,6 +18,8 @@ The project runtime identifier is set to `win-x64` so that the Lore SDK native l
 
 ## Releases
 
+To build without creating a release, run the **Release** workflow manually from the GitHub Actions page or with `gh workflow run release.yml --ref main`. The workflow runs the Release tests and makes `Chronicler-win-x64.zip` available as a workflow artifact.
+
 When you push an annotated `vX.Y.Z` tag to `main`, GitHub Actions runs tests in the Release configuration and builds a self-contained, single-file Windows x64 version. The generated `Chronicler-win-x64.zip` is attached to the GitHub Release for that tag.
 
 ```powershell

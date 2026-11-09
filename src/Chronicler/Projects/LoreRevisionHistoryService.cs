@@ -34,6 +34,7 @@ public sealed class LoreRevisionHistoryService : IRevisionHistoryService
 
     public async Task<IReadOnlyList<RevisionHistoryEntry>> ReadAsync(string path)
     {
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         var entries = new List<EntryBuilder>();
         var sync = new object();
         string? error = null;
@@ -77,6 +78,7 @@ public sealed class LoreRevisionHistoryService : IRevisionHistoryService
                 }
             }
         }).WaitAsync();
+        operation.Dispose();
 
         if (error is not null) throw new InvalidDataException(error);
         if (entries.Count > MaximumEntries) throw new InvalidDataException("Revision history exceeds the requested limit.");

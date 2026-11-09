@@ -160,8 +160,98 @@ public sealed class PushWindowTests : IDisposable
         });
     }
 
+    [Fact]
+    public void ChecksPushStatusAfterTheInitialFileScan()
+    {
+        RunSta(() =>
+        {
+            var scan = new TaskCompletionSource<FileStatusSnapshot>();
+            var status = new FakeFileStatusService { Scan = _ => scan.Task };
+            var calls = 0;
+            var service = new FakePushService
+            {
+                Prepare = () =>
+                {
+                    calls++;
+                    return Task.FromResult(Status);
+                }
+            };
+            var window = CreateWindow(service, (_, _) => true, fileStatusService: status);
+            Control<ListBox>(window, "ProjectList").SelectedIndex = 0;
+            Click(window, "SwitchProjectButton");
+            PumpDispatcher();
+            Assert.Single(status.Paths);
+            Assert.Equal(0, calls);
+            scan.SetResult(new FileStatusSnapshot(status.Paths[0], new Dictionary<string, FileChangeKind>()));
+            PumpDispatcher();
+            Assert.Equal(1, calls);
+            Assert.Equal("Push (3)", Control<Button>(window, "PushButton").Content);
+            window.Close();
+            PumpDispatcher();
+        });
+    }
+
+    [Fact]
+    public void DecliningCloseConfirmationKeepsWindowOpen()
+    {
+        RunSta(() =>
+        {
+            var window = CreateWindow(new FakePushService(), (_, _) => false);
+            SelectProject(window);
+            window.Close();
+            PumpDispatcher();
+            Assert.True(window.IsVisible);
+        });
+    }
+
+    [Fact]
+    public void ClosingWaitsForStatusAndBlocksConflictingOperations()
+    {
+        RunSta(() =>
+        {
+            var pending = new TaskCompletionSource<LatestStatus>();
+            var calls = 0;
+            var service = new FakePushService
+            {
+                Prepare = () => ++calls == 1 ? Task.FromResult(Status) : pending.Task
+            };
+            var window = CreateWindow(service, (_, _) => true);
+            SelectProject(window);
+            var closed = false;
+            window.Closed += (_, _) => closed = true;
+            window.Close();
+            Assert.False(closed);
+            Assert.False(Control<Button>(window, "SwitchProjectButton").IsEnabled);
+            pending.SetResult(Status);
+            PumpDispatcher();
+            Assert.True(closed);
+        });
+    }
+
+    [Fact]
+    public void UnavailableStatusCanBeReportedWhenClosing()
+    {
+        RunSta(() =>
+        {
+            var messages = new List<string>();
+            var window = CreateWindow(new FakePushService
+            {
+                PrepareError = new LatestSyncException("Status unavailable")
+            }, (message, _) =>
+            {
+                messages.Add(message);
+                return true;
+            });
+            SelectProject(window);
+            window.Close();
+            PumpDispatcher();
+            Assert.Contains(messages, message => message.Contains("Status unavailable"));
+            Assert.False(window.IsVisible);
+        });
+    }
+
     private WorkspaceWindow CreateWindow(IPushService service, Func<string, string, bool> confirm,
-        Func<string, bool>? authenticate = null)
+        Func<string, bool>? authenticate = null, IFileStatusService? fileStatusService = null)
     {
         var path = Path.Combine(directory, "repo");
         Directory.CreateDirectory(Path.Combine(path, ".lore"));
@@ -170,7 +260,7 @@ public sealed class PushWindowTests : IDisposable
         store.Load();
         store.Save([project]);
         var window = new WorkspaceWindow(server, store, new UnusedRepositoryService(), confirm,
-            repositoryInfo: repositoryInfo, fileStatusService: new FakeFileStatusService(),
+            repositoryInfo: repositoryInfo, fileStatusService: fileStatusService ?? new FakeFileStatusService(),
             authenticate: authenticate, fileLockService: new FakeFileLockService(), pushService: service,
             unpushedCommitService: new FakeUnpushedCommitService());
         window.Show();

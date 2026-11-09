@@ -404,7 +404,8 @@ public sealed class StageWindowTests : IDisposable
         store.Load();
         store.Save(projects);
         return new WorkspaceWindow(server, store, new UnusedRepositoryService(), confirm,
-            repositoryInfo: repositoryInfo, fileStatusService: status, fileLockService: new FakeFileLockService(), stageService: stage);
+            repositoryInfo: repositoryInfo, fileStatusService: status, fileLockService: new FakeFileLockService(),
+            stageService: stage, pushService: new FakePushStatusService(), branchService: new FakeBranchListService());
     }
 
     private static Button? FindButton(DependencyObject parent)

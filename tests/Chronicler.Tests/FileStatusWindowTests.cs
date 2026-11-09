@@ -159,6 +159,14 @@ public sealed class FileStatusWindowTests : IDisposable
             await File.WriteAllTextAsync(Path.Combine(path, "new.txt"), "new");
         }
 
+        Task<string> repositoryUrl;
+        using (await LoreRepositoryOperationGate.AcquireAsync(path))
+        {
+            repositoryUrl = new ProjectRepositoryInfo().ReadServerUrlAsync(path);
+            Assert.False(repositoryUrl.IsCompleted);
+        }
+        Assert.Equal("lore://localhost:41337", await repositoryUrl.WaitAsync(TimeSpan.FromSeconds(10)));
+
         RunSta(() =>
         {
             var project = new ProjectProfile(Guid.NewGuid(), "Real", server.Id, server.RemoteUrl, "repo", path, repositoryInfo.RepositoryId);
@@ -197,7 +205,8 @@ public sealed class FileStatusWindowTests : IDisposable
         store.Load();
         store.Save(projects);
         return new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => true,
-            repositoryInfo: repositoryInfo, fileStatusService: status, fileLockService: new FakeFileLockService());
+            repositoryInfo: repositoryInfo, fileStatusService: status, fileLockService: new FakeFileLockService(),
+            pushService: new FakePushStatusService(), branchService: new FakeBranchListService());
     }
 
     private static void SelectProject(WorkspaceWindow window, int index)

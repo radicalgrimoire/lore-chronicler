@@ -32,6 +32,7 @@ public sealed class LoreRepositoryService : IRepositoryService
 
     public async Task CloneAsync(string serverUrl, string repositoryName, string path, IProgress<string> progress)
     {
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         using var globals = new LoreGlobalArgs { RepositoryPath = path };
         using var args = new LoreRepositoryCloneArgs { RepositoryUrl = ProjectValidator.RepositoryUrl(serverUrl, repositoryName) };
         await Lore.RepositoryClone(globals, args)

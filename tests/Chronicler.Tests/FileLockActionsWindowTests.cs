@@ -272,7 +272,11 @@ public sealed class FileLockActionsWindowTests : IDisposable
             SelectProject(window, 0);
             ShowMyLocks(window);
             var before = Control<TextBox>(window, "MyLocksStatusText").Text;
+            var closed = false;
+            window.Closed += (_, _) => closed = true;
             window.Close();
+            PumpDispatcher();
+            Assert.True(closed);
             delayed.SetResult([new MyFileLock(Path.Combine(project.LocalPath, "asset.txt"), "asset.txt", "branch", "me")]);
             PumpDispatcher();
             Assert.Empty(Control<ListBox>(window, "MyLocksList").Items);
@@ -321,7 +325,8 @@ public sealed class FileLockActionsWindowTests : IDisposable
         store.Save(projects);
         return new WorkspaceWindow(server, store, new UnusedRepositoryService(), (_, _) => confirm,
             repositoryInfo: repositoryInfo, branchService: new FakeBranchService(),
-            fileStatusService: new FakeFileStatusService(), fileLockService: icons, fileLockActionsService: actions);
+            fileStatusService: new FakeFileStatusService(), fileLockService: icons, fileLockActionsService: actions,
+            pushService: new FakePushStatusService());
     }
 
     private static MenuItem AcquireMenu(WorkspaceWindow window) =>

@@ -185,6 +185,7 @@ public sealed class LoreFileStatusService : IFileStatusService
 
     private static async Task<FileStatusSnapshot> ScanCoreAsync(string path)
     {
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         var changes = new Dictionary<string, FileChangeKind>(StringComparer.OrdinalIgnoreCase);
         var stagedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var changeDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

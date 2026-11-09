@@ -21,6 +21,7 @@ public sealed class LoreUnpushedCommitService : IUnpushedCommitService
     {
         if (!status.LocalAhead) return new UnpushedCommitCount(0, true);
 
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         var revisions = new List<string>();
         string? error = null;
         using var globals = new LoreGlobalArgs { RepositoryPath = path };

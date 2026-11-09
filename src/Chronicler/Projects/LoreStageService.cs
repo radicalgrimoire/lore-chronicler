@@ -20,6 +20,7 @@ public sealed class LoreStageService : IStageService
         if ((File.Exists(path) || Directory.Exists(path))
             && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
             throw new InvalidDataException("A link cannot be staged directly.");
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(root);
         using var globals = new LoreGlobalArgs { RepositoryPath = root, Offline = true };
         using var args = new LoreFileStageArgs { Paths = [path], Scan = true };
         string? error = null;
@@ -40,6 +41,7 @@ public sealed class LoreStageService : IStageService
     public Task UnstageAsync(string root, IReadOnlyList<string> paths) => Task.Run(async () =>
     {
         ValidatePaths(root, paths);
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(root);
         using var globals = new LoreGlobalArgs { RepositoryPath = root, Offline = true };
         using var args = new LoreFileUnstageArgs { Paths = paths.ToArray() };
         string? error = null;

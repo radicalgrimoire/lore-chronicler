@@ -34,6 +34,7 @@ public sealed class LoreRevisionChangesService : IRevisionChangesService
         if (string.IsNullOrWhiteSpace(revision))
             throw new ArgumentException("A revision ID is required.", nameof(revision));
 
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         var changes = new List<RevisionChange>();
         var sync = new object();
         string? error = null;

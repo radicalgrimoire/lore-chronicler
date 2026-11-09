@@ -19,6 +19,7 @@ public sealed class LoreCommitService : ICommitService
             throw new ArgumentException("Enter a commit message.", nameof(message));
         return Task.Run(async () =>
         {
+            using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
             string? error = null;
             var revisionCreated = false;
             var sync = new object();

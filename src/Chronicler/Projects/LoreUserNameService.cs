@@ -27,6 +27,7 @@ public sealed class LoreUserNameService : IUserNameService
         string? warning = null;
         try
         {
+            using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
             using var globals = new LoreGlobalArgs { RepositoryPath = path, WorkingDirectory = Path.GetFullPath(path) };
             using var args = new LoreAuthUserInfoArgs { UserIds = userIds.ToArray() };
             await Lore.AuthUserInfo(globals, args).Callback((ev, _) =>

@@ -84,6 +84,7 @@ public sealed class LorePushBackend : IPushBackend
 
     public async Task<PushTarget> PushAsync(string path, string branch, IProgress<string> progress)
     {
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         PushTarget? target = null;
         string? error = null;
         var sync = new object();

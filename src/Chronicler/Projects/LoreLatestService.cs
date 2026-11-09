@@ -93,6 +93,7 @@ public sealed class LoreLatestBackend : ILatestBackend
 {
     public async Task<LatestStatus> ReadStatusAsync(string path)
     {
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         LatestStatus? status = null;
         using var globals = new LoreGlobalArgs { RepositoryPath = path };
         using var args = new LoreRepositoryStatusArgs { RevisionOnly = true };
@@ -112,6 +113,7 @@ public sealed class LoreLatestBackend : ILatestBackend
 
     public async Task<LatestSyncOutcome> SyncAsync(string path, string revision)
     {
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         LatestSyncOutcome? target = null;
         var conflict = false;
         using var globals = new LoreGlobalArgs { RepositoryPath = path };

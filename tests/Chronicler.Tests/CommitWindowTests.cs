@@ -304,7 +304,8 @@ public sealed class CommitWindowTests : IDisposable
         store.Save(projects);
         return new WorkspaceWindow(server, store, new UnusedRepositoryService(), confirm,
             repositoryInfo: repositoryInfo, fileStatusService: status, fileLockService: new FakeFileLockService(),
-            historyService: history, commitService: commit);
+            historyService: history, commitService: commit, pushService: new FakePushStatusService(),
+            branchService: new FakeBranchListService());
     }
 
     private static FileStatusSnapshot Snapshot(string root, string[] paths, bool conflict = false)

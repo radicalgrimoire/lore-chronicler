@@ -25,6 +25,7 @@ public sealed class ProjectRepositoryInfo : IProjectRepositoryInfo
         {
             throw new InvalidOperationException("The selected folder does not contain a Lore repository.");
         }
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         string? remote = null;
         using var globals = new LoreGlobalArgs { RepositoryPath = path, Offline = true };
         using var config = new LoreRepositoryConfigGetArgs { Key = "remote_url" };
@@ -45,6 +46,7 @@ public sealed class ProjectRepositoryInfo : IProjectRepositoryInfo
     public async Task<LocalRepositoryInfo> ReadLocalAsync(string path)
     {
         var remote = await ReadServerUrlAsync(path);
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         string? id = null;
         using var globals = new LoreGlobalArgs { RepositoryPath = path, Offline = true };
         using var status = new LoreRepositoryStatusArgs { RevisionOnly = true };
@@ -64,6 +66,7 @@ public sealed class ProjectRepositoryInfo : IProjectRepositoryInfo
 
     public async Task<RemoteRepositoryInfo> ReadRemoteAsync(string path)
     {
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         RemoteRepositoryInfo? result = null;
         using var globals = new LoreGlobalArgs { RepositoryPath = path };
         using var args = new LoreRepositoryInfoArgs();

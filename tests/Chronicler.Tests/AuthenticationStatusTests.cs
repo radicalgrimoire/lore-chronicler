@@ -139,7 +139,11 @@ public sealed class AuthenticationStatusTests : IDisposable
             list.SelectedIndex = 0;
             Click(window, "SwitchProjectButton");
             var beforeClose = label.Text;
+            var closed = false;
+            window.Closed += (_, _) => closed = true;
             window.Close();
+            PumpDispatcher();
+            Assert.True(closed);
             delayed.SetResult(new AuthenticationStatus(false, null));
             PumpDispatcher();
             Assert.Equal(beforeClose, label.Text);
@@ -182,7 +186,7 @@ public sealed class AuthenticationStatusTests : IDisposable
         return new WorkspaceWindow(server, store, new UnusedRepositoryService(), confirm: (_, _) => true, authenticate: authenticate,
             authenticationStatusService: service, repositoryInfo: new FakeRepositoryInfo(),
             branchService: new FakeBranchService(), fileStatusService: new FakeFileStatusService(),
-            fileLockService: new FakeFileLockService());
+            fileLockService: new FakeFileLockService(), pushService: new FakePushStatusService());
     }
 
     public void Dispose()

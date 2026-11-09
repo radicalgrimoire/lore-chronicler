@@ -24,6 +24,7 @@ public sealed class LoreBranchService : IBranchService
 {
     public async Task<BranchListResult> ListAsync(string path)
     {
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         var entries = new ConcurrentQueue<BranchEntry>();
         var remoteSeen = 0;
         using var globals = new LoreGlobalArgs { RepositoryPath = path };
@@ -53,6 +54,7 @@ public sealed class LoreBranchService : IBranchService
 
     public async Task SwitchAsync(string path, BranchEntry branch)
     {
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         using var globals = new LoreGlobalArgs { RepositoryPath = path, Local = branch.IsLocal };
         using var args = new LoreBranchSwitchArgs { Branch = branch.Id, Reset = false, Bare = false };
         var completed = false;
@@ -77,6 +79,7 @@ public sealed class LoreBranchService : IBranchService
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Enter a branch name.", nameof(name));
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         using var globals = new LoreGlobalArgs { RepositoryPath = path };
         using var args = new LoreBranchCreateArgs { Branch = name };
         var created = false;
@@ -91,6 +94,7 @@ public sealed class LoreBranchService : IBranchService
     public async Task DeleteAsync(string path, BranchEntry branch)
     {
         if (branch.IsCurrent) throw new InvalidOperationException("The current branch cannot be deleted.");
+        using var operation = await LoreRepositoryOperationGate.AcquireAsync(path);
         using var globals = new LoreGlobalArgs { RepositoryPath = path };
         using var args = new LoreBranchArchiveArgs { Branch = branch.Name };
         var archived = false;
